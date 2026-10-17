@@ -1,18 +1,21 @@
 # Anthropic Provider 對官方 Claude Code 的行為相似度
 
-評估日期：2026-10-17（首次評估 2026-10-15；本次依 pinned references 重評，分數不變）。
+評估日期：原評分 2026-10-17（首次評估 2026-10-15；本次依 pinned references 重評，分數不變），基準 native 2.1.299；2a 原樣轉送的另計分數 2026-10-18 新增，基準 native 2.1.302（§3）。
 
-**本報告以官方 Claude Code 為唯一基準，分別評估其他實作與官方的相似程度：agent-gateway 為 65／100，CLIProxyAPI 為 42.78／100。** 官方基準由 `references/claude-code` 的固定版本識別，未公開的 CLI transport 邏輯以固定官方 native release 補充；分數使用 30 項中的 25 項共同可確認證據。
+**本報告以官方 Claude Code 為唯一基準，分別評估其他實作與官方的相似程度：agent-gateway 的自組路徑（含 2b）為 65／100，CLIProxyAPI 為 42.78／100。** 官方基準由 `references/claude-code` 的固定版本識別，未公開的 CLI transport 邏輯以固定官方 native release 補充；分數使用 30 項中的 25 項共同可確認證據。這兩個分數評的是 gateway 自己組請求的路徑（`/v1/responses`、`/v1/chat/completions`，以及共用組裝層的 2b 降轉）。
+
+**2a 原樣轉送另計為 100／100**（2026-10-18 新增）：官方 Claude Code 的請求原樣轉送，用同一份 30 項 rubric、以 native 2.1.302 為基準只對官方計分；可判定的 28 項全部符合，D5、F2 未知，補齊後範圍 93.33–100。A1–A4 仍沿用 2.1.299 的判定，沒有用 2.1.302 重新驗證。逐項表見 §3「2a 原樣轉送的另計分數」；這個分數不能直接和 65／42.78 比較。
 
 | 對象 | 比較基準 | 行為相似度 |
 |---|---|---:|
 | 官方 Claude Code | 基準本身 | **100（定義值）** |
-| agent-gateway | 官方 Claude Code | **65／100** |
-| CLIProxyAPI | 官方 Claude Code | **42.78／100** |
+| agent-gateway：自組路徑與 2b（共同集合 25 項） | 官方 Claude Code（2026-10-17，native 2.1.299） | **65／100** |
+| CLIProxyAPI（共同集合 25 項） | 官方 Claude Code（2026-10-17，native 2.1.299） | **42.78／100** |
+| agent-gateway：2a 原樣轉送（另計，可判定 28 項，見 §3） | 官方 Claude Code（2026-10-18，native 2.1.302；A1–A4 沿用 2.1.299 的判定） | **100／100** |
 
 官方的 100 是參考原點，不表示已掌握官方所有分支。**不再計算 gateway 與 CPA 彼此的相似度。** 前版的「CPA 33 分」是 gateway 對 CPA 的分數，不能解讀為 CPA 對官方的分數，本版已逐項重新判定。
 
-這是依實作證據人工標註、再套公式計算的**行為相似度**，不是程式碼文字相似度、測試覆蓋率、API 成功率或品質評分。兩個分數獨立計算，不需要加總為 100；差異也不必然是錯誤。
+這是依實作證據人工標註、再套公式計算的**行為相似度**，不是程式碼文字相似度、測試覆蓋率、API 成功率或品質評分。各分數獨立計算，不需要加總為 100；差異也不必然是錯誤。
 
 ## 1. 比較範圍與固定版本
 
@@ -48,6 +51,14 @@ gateway 由 `d6ce854` 改評 `dfb0d6c`。`git diff d6ce854 dfb0d6c -- src/claude
 3. **native 執行檔狀態**：本機 `~/.local/share/claude/versions/` 已自動更新，只剩 2.1.300、2.1.301、2.1.302，2.1.299 執行檔已刪除。本次沒有重新開啟 native 證據，沿用 2026-10-15 依上表 SHA256 記錄的 offset，也沒有重新驗證官方規則。下次換基準時，要用新版 native 重找每個 offset。
 
 cache 實際命中率尚未驗證，限制記在第 6 節。
+
+### 2026-10-18 重評註記
+
+基準不變：`references/claude-code` `9b4f0d6`、native 2.1.299 已記錄的證據、CPA `5fc580b`。gateway 是 `4e1a0d5` 之上未 commit 的工作區，新增 Claude 原樣轉送（2a）與降轉（2b）兩條路徑；commit 之後，比較版本改成新的 commit。30 項標記、A–F 分組分數與總分都不變。
+
+1. **2a 原樣轉送另計，不放進 65／42.78 的共同集合**：官方 Claude Code 打 `POST /v1/messages` 時，上游收到的是 client 自己組的請求：body 逐 byte 相同，header 的名稱、大小寫和順序也相同。和官方直連的差異只有：`Authorization` 換成 home 的 token；`host`、`content-length` 改成這段連線的值；TLS 與 HTTP 實作不同（Node `https` 對 Bun）；count_tokens 只轉送已綁定的 session。上面的 65／42.78 評的是 gateway 自己組請求的路徑，這條路徑不放進那個共同集合；改用同一份 30 項 rubric 只對官方另計，結果是 **100**（可判定 28 項，補齊後 93.33–100），逐項表見 §3「2a 原樣轉送的另計分數」。證據：native 2.1.302 的 `xi()`、`GPo`、`mUs`、`GU`、`DFe`（offset 見 [Claude 通訊差異](CLAUDE_UPSTREAM_PROTOCOL_DIFF.md) §13.1）、三次本機擷取，以及審查報告 `.tmp/review_report_2a_r1.md`～`r3`、`.tmp/review_report_2b_r2.md`。
+2. **2b 降轉沿用本報告的標記**：其他 Anthropic client 打 `/v1/messages` 時，gateway 用 `src/claude/assembleRequest.ts` 重組請求，這個組裝層和 `/v1/responses` 的 Claude 路徑共用。拆出組裝層的重構經過 150 組前後對照，產生的請求完全相同（`.tmp/review_report_2b_r1.md`），組裝行為沒有變，所以標記不變，2b 沿用 65。tools、system、messages 的內容仍是 client 的，欄位政策見 [使用指南](GUIDE.md)「其他 Anthropic client（降轉）」；審查報告見 `.tmp/review_report_2b_r1.md`～`r2`。
+3. **2a 已用真實上游端對端測試通過**（使用者手動執行，2026-10-18）：`CLAUDE_CONFIG_DIR=~/.claude-personal ANTHROPIC_BASE_URL=http://127.0.0.1:8765 _CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1 claude -p "say ok"` 回 `ok`。這證明轉送路徑能用，不改變 30 項的判定。2b 還沒有用真實 SDK client 測過。
 
 ## 2. 計分演算法
 
@@ -109,6 +120,52 @@ D 組的 gateway 100% 只代表三個已共同確認的項目，**不代表 CCH 
 | CPA | 10 | 15 | 5 | `100 × 10/30` 至 `100 × 15/30`，即 **33.33–50.00** |
 
 這是「補齊未知後」的界限，不是目前共同集合分數的統計信賴區間。以本文件固定的項目、既有判定及權重，補齊未知也不會逆轉 gateway 比 CPA 更接近官方的排序；改選項目、權重或比較路徑則可能改變結果。
+
+### 2a 原樣轉送的另計分數（2026-10-18）
+
+官方 Claude Code 經 2a 轉送時，上游請求由 client 自己產生，所以用同一份 30 項 rubric 只對官方另計一次。基準是 client 實際使用的 native 2.1.302，不是上面 65／42.78 用的 2.1.299。gateway 自己的程式只有 A1–A4（home 的憑證與 refresh）、F1（取消）和 F5（timeout），判定沿用上面 gateway 欄或直接查 `src/`；其他項目由 client 處理，gateway 原樣轉送 body、headers 和上游 SSE bytes。原樣轉送的證據是 [Claude 通訊差異](CLAUDE_UPSTREAM_PROTOCOL_DIFF.md) §13.1 的擷取、§13.2 的做法和 §13.4 的 wire-level 測試；本表沒有在 2.1.302 逐項重找官方規則的 offset。
+
+| ID | 比較點 | 轉送路徑上由誰處理 | 對官方 |
+|---|---|---|---:|
+| A1 | Linux 檔案憑證 schema | gateway home 的 auth manager，同上面 gateway 欄 | 1 |
+| A2 | refresh scope 與拒絕處理 | 同 A1 | 1 |
+| A3 | 提前 refresh 時間 | 同 A1 | 1 |
+| A4 | 同 home 的跨程序輪替保護 | 同 A1 | 1 |
+| A5 | 本地新會話的 session ID 生成政策 | client 自己配置；`x-claude-code-session-id` 與 `metadata.user_id` 原樣轉送 | 1 |
+| B1 | 一般 system builder 的位置 | client 的 system builder；body 逐 byte 轉送 | 1 |
+| B2 | 預設 system 文字區塊組合 | 同 B1 | 1 |
+| B3 | legacy caller system 位置 | 同 B1 | 1 |
+| B4 | GA 後的 mid-system beta | client 的 `anthropic-beta` 原樣轉送 | 1 |
+| B5 | 訂閱快取 1h 的選用政策 | client 依自己的條件決定 `ttl`（訂閱者擷取有 `ttl:"1h"`，§13.1） | 1 |
+| C1 | 是否額外呼叫 Anthropic `/v1/models` | 轉送路徑不查 gateway 的模型目錄 | 1 |
+| C2 | home 的 effort／modelSettings／maxEffortLevel | client 讀自己的 home 設定 | 1 |
+| C3 | adaptive／budget thinking 的 wire 形狀 | client 產生 | 1 |
+| C4 | thinking 開啟且指定具名工具 | client 自己處理；gateway 不檢查 body 語意 | 1 |
+| C5 | JSON Schema 的上游表達 | client 產生 | 1 |
+| D1 | 第一方主推論串流端點 | client 的 path 與 query 原文（`/v1/messages?beta=true`） | 1 |
+| D2 | OAuth 及基本協定 headers | client 的 headers 原樣；`Authorization` 換成同帳號 home 的 Bearer | 1 |
+| D3 | 預設 CLI／SDK 版本標記 | client 自己的 UA 與 `x-stainless-package-version` | 1 |
+| D4 | 官方最終 body 的完整 CCH 規則 | client 自己簽，gateway 不改 body。只限不帶 alias 的請求；帶 alias 時換掉的 `model` 值，依 §13.2 的「`cch` 計算時 model 清空」 | 1 |
+| D5 | 官方 TLS／HTTP wire 指紋 | 官方規則未確認；而且送出的是 gateway 的 Node `https`，不是 client 的 Bun | ? |
+| E1 | 基本文字／tool input delta 累積 | 上游 SSE bytes 原樣轉回，由 client 的 SDK accumulator 處理 | 1 |
+| E2 | 連續非空 `signature_delta` | 同 E1 | 1 |
+| E3 | 累計 usage 欄位合併 | 同 E1 | 1 |
+| E4 | Web Search 的 server-tool 回應 | server-tool 區塊原樣轉回，由 client 處理 | 1 |
+| E5 | 上游 thinking 文字的對外呈現 | client 自己呈現 | 1 |
+| F1 | 取消訊號向上游傳遞 | client 斷線時 gateway 中止上游請求 | 1 |
+| F2 | 完整 401 恢復策略 | 官方規則未確認（gateway 另有 401 後換 token 重送一次） | ? |
+| F3 | mid-system 被拒後 fallback | client 自己的重試分支；上游錯誤原樣轉回 | 1 |
+| F4 | 簽章狀態儲存及留存方式 | client 的 transcript；gateway 不用 `claude-state/` | 1 |
+| F5 | 預設推論 timeout | client 自己的 600 秒；gateway 到上游也是 600 秒（`CLAUDE_REQUEST_TIMEOUT_MS`，`src/constants.ts`） | 1 |
+
+```text
+組分數：A 5/5、B 5/5、C 5/5、D 4/4（D5 為 ?）、E 5/5、F 4/4（F2 為 ?）
+總分 = (100 / 6) × (1 + 1 + 1 + 1 + 1 + 1) = 100
+可判定 28／30；補齊 30 項後為 100 × 28/30 至 100 × 30/30，即 93.33–100
+```
+
+- 這是只對官方計分：每組只看轉送路徑自己可判定的項目，不是第 2 節和 CPA 取共同集合的比較算法，基準版本也不同，所以**不能直接和 65／42.78 比較**。
+- 100 沒有涵蓋：TLS 與 HTTP 實作不同（Node `https` 對 Bun）；token 是同帳號的另一份憑證；`host`、`content-length` 是這段連線的值；count_tokens 只轉送已綁定的 session。分數不代表行為完全等同官方。
 
 ## 4. 三方比較與 30 項評分明細
 

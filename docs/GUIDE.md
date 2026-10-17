@@ -9,6 +9,8 @@
 | `GET /v1/models` | 模型清單（Codex 只列 `visibility=list`、依 priority 排序；Claude 列上游 `/v1/models`；id 帶帳號 prefix，見「多帳號」） |
 | `POST /v1/responses` | Codex 帳號近似 passthrough；`stream:true` 時原樣轉送 SSE，`stream:false` 時聚合成單一回應。Claude 帳號則把原生 Messages SSE 轉成完整 Responses 事件 |
 | `POST /v1/chat/completions` | 轉成 Responses API；支援串流、`stream_options.include_usage`、tools / tool_calls（兩個上游都支援） |
+| `POST /v1/messages` | 官方 Claude Code：原樣轉送給 Claude 上游，只換成 gateway home 的 token（見「官方 Claude Code 連 gateway」）；其他 Anthropic client 走降轉，由 gateway 重組成官方形狀（見「其他 Anthropic client（降轉）」） |
+| `/backend-api/codex/*` | 只給官方 Codex CLI（`openai_base_url`）：HTTP 與 WebSocket 原樣轉送給 ChatGPT backend，只換成 gateway home 的 token；有設 API key 時一律回 403（見「官方 Codex CLI 連 gateway」） |
 
 ## 從舊版 codex-proxy 搬遷（手動）
 
@@ -203,7 +205,7 @@ AGENT_GATEWAY_API_KEY="$(cat ~/.agent-gateway-key)" npm start -- --codex-home ~/
 
 client 端把 `base_url` 改成 `http://<主機IP>:8765/v1`，`apiKey` 填 `~/.agent-gateway-key` 的內容。用 `scp` 等加密管道把 key 複製到 client 機器，不要貼到聊天室或 issue。
 
-- 有設 key 時，每個請求（含 `GET /v1/models`）都要帶 `Authorization: Bearer <key>`，不帶或不對都回 401（`code: invalid_api_key`），且不再限制 `Host` 標頭。沒設 key 時維持原本的 `Host` 白名單，擋下 DNS rebinding。
+- 有設 key 時，每個請求（含 `GET /v1/models`）都要帶 `Authorization: Bearer <key>`，不帶或不對都回 401（`code: invalid_api_key`），且不再限制 `Host` 標頭。沒設 key 時維持原本的 `Host` 白名單，擋下 DNS rebinding。例外是 `POST /v1/messages`：官方 Claude Code 的 `Authorization` 是它自己的 Claude token，key 改用 `x-agent-gateway-api-key` 帶，錯誤時回 403（見「官方 Claude Code 連 gateway」）；其他 Anthropic client 可以用 `x-api-key`、`Authorization: Bearer` 或 `x-agent-gateway-api-key` 帶，錯誤時回 401 `authentication_error`（見「其他 Anthropic client（降轉）」）。`/backend-api/codex/*` 則是有設 key 時一律回 403，因為 Codex 沒辦法帶 key（見「官方 Codex CLI 連 gateway」）。
 - key 只能用環境變數設定，因為 CLI 參數會出現在 `ps` 等程序列表；debug log 也會遮蔽 `authorization`。client 的 key 只用來驗證，不會轉送到上游。
 - 拿到 key 的人就能用你的 ChatGPT／Claude 帳號。請使用夠長的隨機 key，只在信任的網路開放，必要時用防火牆限制來源。
 - gateway 沒有 TLS，key 和對話內容都以明文傳送。跨不信任的網路時，改用 SSH tunnel：gateway 維持預設的 `127.0.0.1`，在 client 機器執行 `ssh -N -L 8765:127.0.0.1:8765 <主機>`，再連 `http://127.0.0.1:8765/v1`。
@@ -269,6 +271,173 @@ Claude 的 thinking 區塊帶簽章，工具回合續接時必須原樣送回，
 - thinking 生效時強制 `tool_choice`（`required` 或指定 function）：官方會降級，gateway 選擇回報 400，不悄悄改寫語意。
 - 不支援的圖片格式、`http://` 圖片 URL、assistant 訊息內的圖片。
 - 未知模型且無法決定輸出上限時，請帶 `max_output_tokens`。
+
+## 官方 Claude Code 連 gateway（`POST /v1/messages`）
+
+官方 Claude Code 也可以把 `ANTHROPIC_BASE_URL` 指向 gateway。這條路徑**不做格式轉換**：client 自己組好的官方請求原樣轉給 `https://api.anthropic.com`，gateway 只把 `Authorization` 換成 gateway Claude home 的 OAuth token。不符合下面判定的請求不會被拒絕，而是走降轉（見「其他 Anthropic client（降轉）」）。
+
+先決條件：
+
+1. Claude Code 已用 OAuth 登入（執行 `claude` 後輸入 `/login`）。不要用 `ANTHROPIC_AUTH_TOKEN` 或 `ANTHROPIC_API_KEY`。
+2. client 登入的帳號，要和某個 gateway Claude home **是同一個帳號**。gateway 拿請求 `metadata.user_id` 裡的 `account_uuid`，去比對每個 home 的 `oauthAccount.accountUuid`；對上的 home 就是這次用的帳號。model alias 不參與帳號選擇。
+
+gateway 沒設 `AGENT_GATEWAY_API_KEY`（預設只聽本機）時：
+
+```bash
+ANTHROPIC_BASE_URL=http://127.0.0.1:8765 \
+_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1 \
+claude
+```
+
+gateway 有設 `AGENT_GATEWAY_API_KEY` 時，三個變數都要帶到同一個 `claude` 指令上（或先 `export`）：
+
+```bash
+ANTHROPIC_BASE_URL=http://<主機>:8765 \
+_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1 \
+ANTHROPIC_CUSTOM_HEADERS="x-agent-gateway-api-key: $(cat ~/.agent-gateway-key)" \
+claude
+```
+
+- `ANTHROPIC_BASE_URL` 不要帶 `/v1`，Claude Code 會自己接上 `/v1/messages?beta=true`。
+- `_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1` 讓 client 把 gateway 當成 first-party。沒設的話，client 自己就會送出降級的形狀：沒有 `cch` 簽章，beta 和 tools 也不同。gateway 補不回來，所以直接拒絕。這是底線開頭、沒有公開文件的內部變數，之後的版本可能改掉。
+- 這條路由的 `Authorization` 是 client 自己的 token，所以 gateway key 改用 `ANTHROPIC_CUSTOM_HEADERS` 帶，格式是每行一個 `Name: value`。gateway 驗證後會移除這個 header，不會轉給上游。
+- key 沒帶或不對時回 **403**（`permission_error`），訊息會指出 `x-agent-gateway-api-key`。刻意不用 401：Claude Code 收到 401 會以為自己的 OAuth token 失效，去做 refresh 或要求重新登入。上游真正回的 401 不受影響，照下面的規則處理。
+- debug log（任何等級）只會印 `x-agent-gateway-api-key: ***`，不論 key 對錯，整個值都會遮掉。
+
+轉送行為：
+
+- body 逐 byte 轉送，不重新序列化。唯一的例外是 model 帶了 gateway alias，例如 `claude1/claude-opus-5`：alias 必須指向上面選出的 home，接著只把 `model` 的值換成去掉 alias 的 id，其他 bytes 不動。`cch` 計算時 model 會被清成空字串，所以不需要重新簽。
+- 轉送用 Node 的 `node:https` 直接送，不經過 `fetch`，所以不會多出 header、不會自動解壓，也不會自動跟隨 redirect。
+- headers 照 client 送來的名稱大小寫、順序和重複項轉送，包括 UA、`x-app`、`anthropic-*`、`x-stainless-*`、`x-claude-code-*`、`x-client-request-id`、`accept-encoding`、`connection`。只換 `Authorization`；`host` 和 `content-length` 在原位置填上這一段的值（只有改寫 alias 時長度才會變）；移除 `transfer-encoding`、`keep-alive`、`upgrade` 和 `x-agent-gateway-api-key`。UA 照轉 client 自己的值，這是使用者核准的例外（見 `AGENTS.md`）。
+- path 和 query 用 client 送來的原文，不重新編碼。
+- 每次真正送出前（第一次，以及 401 恢復後的重送），gateway 都會重新讀 home 的 `accountUuid`，確認仍是 client 的帳號。home 在這期間換成別的登入，就回 400、不送出，也不會改 metadata 或重新簽章去遷就新帳號。
+- 上游回 401 時，gateway 會更新 home 的 token，用同一份 body 重試一次；重試仍是 401 就原樣轉回。
+- 上游的 status、status 訊息、headers 和 body 原樣轉回，錯誤、壓縮內容（`content-encoding`、`content-length` 照轉）和 redirect（`Location` 照轉）都一樣；串流照樣串流。只有 `connection`、`keep-alive`、`transfer-encoding` 這類連線用的 header 由 gateway 自己重設。client 斷線時會中止上游請求。
+- 不使用 gateway 的 thinking 狀態（`claude-state/`），thinking 簽章由 client 自己送回。
+- `--debug 1`／`3` 的上游紀錄不包含這條路徑（轉送不經過 `fetch`）。要看內容請用 `--debug 2`／`3`：incoming 的請求和回應，和上游看到、送回的內容相同，只差 token。
+- 只轉送 `POST /v1/messages` 和 `POST /v1/messages/count_tokens`（後者要先綁定 session，見下面），其他路徑回 404。目前只擷取過 `claude -p`（sdk-cli）模式，互動模式尚未驗證。
+
+判定為官方 Claude Code 的條件：同時有 `x-app: cli`、`claude-cli/` 開頭的 UA，以及含 `device_id`、`session_id` 的 JSON 字串 `metadata.user_id`。符合之後才套用下面的檢查。
+
+`POST /v1/messages/count_tokens`：Claude Code 會呼叫它估算 token 數（native 2.1.302 的 `DFe`；失敗時只記 log、回傳 null，對話照常進行）。這個請求沒有 `metadata.user_id`，無法直接比對帳號，所以改用 session 綁定：
+
+- 同一個 session（`x-claude-code-session-id`）的 `/v1/messages` 通過上面全部檢查之後，gateway 會記住「這個 session → 選出的 home 和帳號」。紀錄只放在記憶體，最多 1000 個 session，最久沒用到的先淘汰；gateway 重啟後就清空。
+- count_tokens 只在以下條件全部成立時轉送：`x-app: cli` 加 `claude-cli/` 開頭的 UA（只看 header，因為沒有 metadata）、`anthropic-beta` 含 `oauth-2025-04-20`、`x-claude-code-session-id` 查得到紀錄。
+- 轉送方式和 `/v1/messages` 相同：path、query、body 原樣（model alias 一樣只能指向綁定的 home），headers 只換 token。每次送出前（包括 401 恢復後的重送）都會確認 home 現在的帳號仍是紀錄裡的帳號，不一致就回 400、不送出。
+- 不符合時回 400，不送上游，Claude Code 只是少了這次估算。不是官方 Claude Code 的 client 打 count_tokens 一律回 400（見降轉一節）。
+
+400 的原因與處理（錯誤一律用 Anthropic 格式 `{"type":"error","error":{...}}`，而且不會送出推論請求）：
+
+| 訊息關鍵字 | 原因 | 處理 |
+|---|---|---|
+| `_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1` | `system[0]` 不是帶 ` cch=` 的 billing 區塊 | 啟動 Claude Code 時加上這個環境變數 |
+| `oauth-2025-04-20` | `anthropic-beta` 沒有 OAuth beta，表示 client 是用 auth token 或 API key 登入 | 拿掉 `ANTHROPIC_AUTH_TOKEN`／`ANTHROPIC_API_KEY`，用 `/login` 以訂閱帳號登入 |
+| `same account as a gateway Claude home` | client 的 `account_uuid` 對不上任何 gateway home，包括 client 尚未登入 | 讓 client 和某個 gateway home 登入同一個帳號 |
+| `now logged in to a different account` | 檢查通過之後、送出之前，gateway home 被換成別的帳號登入 | 把該 home 登回和 Claude Code 相同的帳號，再重試 |
+| `does not match the gateway Claude home` | model alias 指向的 home，不是這次依登入選出的 home | 改用對應的 alias，或用不帶 alias 的 model id |
+| `request target must be a path` | 請求行不是 `/v1/messages?...` 這種路徑形式 | 用官方 Claude Code 連線（它一律送路徑形式） |
+| `same-account check on /v1/messages` | count_tokens 的 session 還沒有通過檢查的 `/v1/messages`：沒帶 `x-claude-code-session-id`、gateway 重啟過，或紀錄已被淘汰 | 在同一個 session 繼續對話；下一個轉送成功的 `/v1/messages` 會重新綁定 |
+
+## 其他 Anthropic client（降轉，`POST /v1/messages`）
+
+不是官方 Claude Code 的 Anthropic Messages API client（例如 Anthropic SDK）也可以打 `POST /v1/messages`。不符合上一節官方 Claude Code 判定的請求，都走這條「降轉」路徑：gateway 不轉送 client 的請求，而是用 `/v1/responses` Claude 路徑同一套官方形狀組裝邏輯重組（做法參考 CLIProxyAPI 的 cloaking）。
+
+- headers 由 gateway 產生：釘住版本的 UA、`x-app: cli`、`anthropic-beta`、`x-stainless-*`，以及 home 的 OAuth token。client 自己的 `x-api-key`、`Authorization`、`anthropic-beta` 都不會送到上游。
+- system 依官方順序重組：billing 區塊（含 `cch` 簽章）、Claude Code 前綴；client 的 system 文字合併成一塊，放在對話中（舊模型放在 system）。
+- cache marker、`metadata.user_id`、betas、thinking、`output_config` 都依官方規則產生；client 帶的 `cache_control` 和 `metadata` 會拿掉。
+- 上游一律用 `stream:true`。
+
+**和官方 Claude Code 原樣轉送的差別**：tools、system 文字和 messages 仍是 client 自己的內容，不是官方 Claude Code 產生的。只有上一節的原樣轉送能保證和官方完全相同；降轉只保證形狀和 gateway 已對齊官方的那一套相同。
+
+連線範例（Python SDK）：
+
+```python
+import anthropic
+
+client = anthropic.Anthropic(
+    base_url="http://127.0.0.1:8765",
+    api_key="<gateway API key；沒設 AGENT_GATEWAY_API_KEY 時任意值>",
+)
+message = client.messages.create(
+    model="claude1/claude-opus-5",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "hello"}],
+)
+```
+
+- `base_url` 不要帶 `/v1`。
+- model 選帳號的方式和 `/v1/responses` 相同：帶 alias 的 id（例如 `claude1/claude-opus-5`），或不帶 alias 的 `claude-*`（用第一個 Claude 帳號）。
+- 有設 `AGENT_GATEWAY_API_KEY` 時，gateway key 可以放在 `x-api-key`（SDK 的 `api_key`）、`Authorization: Bearer`（SDK 的 `auth_token`）或 `x-agent-gateway-api-key`。沒帶或不對時回 **401**（`authentication_error`）。帶了 `x-app: cli` 和 `claude-cli/` UA 的 client 會被當成 Claude Code，key 只認 `x-agent-gateway-api-key`，錯誤回 403（見上一節）。沒設 key 時沿用本機 `Host` 檢查。
+- debug log 會把 `x-api-key` 和 `x-agent-gateway-api-key` 的值整個遮成 `***`。
+
+欄位處理：
+
+| 欄位 | 處理 |
+|---|---|
+| `system` | 字串或 text block 陣列；非 text block 回 400 |
+| `messages` | 接受 text、image（base64 或 `https://` URL）、tool_use、tool_result（content 是字串或 text／image block），以及 thinking 和 redacted_thinking（只限 assistant，原樣保留簽章）。其他 block（document、search_result、server tool 的結果、container_upload、`mcp_*` 等）回 400 |
+| `tools` | 只收自訂工具（`name`、`description`、`input_schema`，可以帶 `type: "custom"`）；server 或內建工具回 400 |
+| `tool_choice` | `auto`、`any`、`tool`、`none`。thinking 開啟時用強制工具（`any`、`tool`）回 400，請改送 `thinking: {"type":"disabled"}` 或 `tool_choice: {"type":"auto"}` |
+| `max_tokens` | 必填，套用模型上限與 thinking budget 檢查 |
+| `output_config` | `effort` 當成 reasoning effort；`format` 只收 `json_schema`；其他欄位回 400 |
+| `thinking` | `{"type":"disabled"}` 等於 effort `"none"`（同時送非 `none` 的 `output_config.effort` 回 400）。其他形狀不轉送，thinking 由 home 設定和 effort 決定，並記入 `ignored=` |
+| `metadata` | 拿掉，由 gateway 產生 |
+| `stream` | 保留，見下方 |
+| `temperature`、`top_p`、`top_k` | 官方不送，拿掉並記入 `ignored=` |
+| `stop_sequences`、`service_tier`、`container`、`mcp_servers`、`context_management`、`inference_geo`，以及其他不認得的欄位 | 回 400，訊息列出欄位名稱 |
+
+`ignored=`：拿掉的欄位會出現在 gateway 的請求紀錄，例如 `POST /v1/messages 200 812ms model=claude1/claude-opus-5 ignored=temperature,thinking`；回應本身不會提示。
+
+回應：
+
+- `stream:true`：上游的原生 SSE 原樣轉回，不翻譯。上游串流中途斷掉時，gateway 直接切斷連線，不會讓 client 以為串流正常結束。
+- `stream:false`：gateway 把上游 SSE 聚合成單一 Message JSON。文字和 tool input 依序累加，thinking 簽章以最新的 `signature_delta` 為準，usage 合併；事件順序不對時回 502。
+- thinking 簽章由 client 在下一個請求自己帶回（原樣保留 assistant 的 thinking block 即可），gateway 不使用 `claude-state/`。
+- session id 由 alias、model 和第一個 message 決定，所以同一段對話的 `x-claude-code-session-id` 和 `metadata.user_id` 的 `session_id` 都不變。這裡的「第一個 message」是 client 送來的第一則原始訊息（拿掉 `cache_control` 之後）；後面再接一則 user 訊息時，送上游時會合併成同一則，但 session 不變。
+- 錯誤一律用 Anthropic 格式 `{"type":"error","error":{...}}`。上游的 HTTP 錯誤保留 status；`stream:false` 時上游送來 `error` 事件會回 502，`error.type` 沿用上游的值（例如 `overloaded_error`）。
+- `POST /v1/messages/count_tokens` 回 400，不送上游。
+
+## 官方 Codex CLI 連 gateway（`/backend-api/codex/*`）
+
+官方 Codex CLI 也可以直接把 gateway 當成 ChatGPT backend。這條路徑**不做格式轉換**：Codex 用內建的 OpenAI provider 和自己的 ChatGPT 登入，照官方方式送出 HTTP 與 WebSocket，包括 prewarm 和帶 `previous_response_id` 的增量 frame。gateway 原樣轉給 `https://chatgpt.com/backend-api/codex`，只把 `authorization` 換成 gateway Codex home 的 token。
+
+設定方式：寫進 Codex 的 `config.toml`，或每次用 `-c` 帶上。
+
+```toml
+openai_base_url = "http://127.0.0.1:8765/backend-api/codex"
+```
+
+```bash
+codex -c 'openai_base_url="http://127.0.0.1:8765/backend-api/codex"' "your prompt"
+```
+
+先決條件與限制：
+
+1. Codex 已用 ChatGPT 帳號登入（`codex login`），而且和某個 gateway Codex home 是**同一個帳號**。gateway 拿 Codex 送來的 `chatgpt-account-id`，比對每個 home 的 account id。
+2. Codex 和 gateway 要用**不同的 home**，各自登入同一個帳號，例如 Codex 用平常的 `~/.codex`，gateway 用 `~/.agent-gateway`。共用同一個 home 時，兩邊會 refresh 同一把 token；refresh token 只能用一次，其中一邊會被登出。
+3. 不能設 `AGENT_GATEWAY_API_KEY`。Codex 的內建 OpenAI provider 不能另外加 header（官方只允許 Bedrock provider 覆寫 headers），沒辦法帶 gateway key。所以有設 key 時這組路由一律回 403，只能在 loopback、不設 key 的情況下使用。
+
+轉送行為：
+
+- **HTTP**（`GET /models`、HTTP 退路的 `POST /responses`，以及 `/backend-api/codex/` 底下的其他路徑）：headers 照 client 送來的名稱大小寫和順序轉送，`host`、`authorization` 在原位置換值，`content-length` 只在 client 有送或有 body 時才填；body、path 和 query 都是原文。回應不解壓、不跟隨 redirect，原樣轉回。上游回 401 時，更新 home 的 token 重送一次。
+- **WebSocket**（`/backend-api/codex/responses`）：client 的握手原樣轉給上游，只換 `host` 和 `authorization`。上游回 101 才完成握手，101 的 headers（包括 `x-codex-turn-state`）原樣回給 client。之後 gateway 只在兩端之間搬 bytes：frame、壓縮、ping／pong 和 close code 都由 Codex 和上游直接處理。上游回 426 時原樣轉回，Codex 會照官方規則退回 HTTP。上游握手 15 秒內沒完成就回 504。
+- 每次真正送出前（包括 401 恢復後的重送和 WebSocket 重新握手），都會確認 home 仍是 Codex 的帳號；home 換成別的帳號就回 400，不會送出。
+- UA 照轉 Codex 自己的值，這是使用者核准的轉送例外（見 `AGENTS.md`）。
+- 不使用 gateway 的 `previous_response_id` 本機展開（那是 `/v1/responses` 的功能）：增量續接由 Codex 和上游在 WebSocket 連線上自己處理。
+- debug log 一律遮罩 `authorization`。
+
+狀態碼（gateway 自己產生的錯誤用 OpenAI 格式 `{"error":{...}}`；WebSocket 在 upgrade 之前就以 HTTP 狀態碼回應）：
+
+| 狀態 | `code` | 原因 | 處理 |
+|---|---|---|---|
+| 400 | `account_mismatch` | Codex 沒送 `chatgpt-account-id`、對不上任何 gateway Codex home，或送出前 home 已換成別的帳號 | 讓 Codex 和某個 gateway home 登入同一個帳號 |
+| 400 | — | 請求行不是 `/backend-api/codex/...` 這種路徑形式 | 用官方 Codex 連線 |
+| 403 | `api_key_unsupported` | gateway 設了 `AGENT_GATEWAY_API_KEY` | 拿掉 key，只在 loopback 使用 |
+| 403 | — | Host 不是 loopback（沒設 key 時的 DNS rebinding 防護） | 用 `127.0.0.1` 連線 |
+| 404 | — | WebSocket upgrade 的路徑不在 `/backend-api/codex/` 底下 | — |
+| 502 | `upstream_unreachable` | 連不到上游 | 檢查網路 |
+| 504 | `upstream_timeout` | 上游 WebSocket 握手（含取得 credentials 與 401 恢復）15 秒內沒有完成 | 稍後重試 |
+| 其他 | — | 上游自己的回應（包括 401、426、429），原樣轉回 | 依上游的訊息處理 |
 
 ## Client 設定範例
 

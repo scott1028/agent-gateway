@@ -62,7 +62,7 @@ const getIncompleteDetails = (stopReason: string | undefined): { response: Json;
 };
 
 // stop_reason values the pinned release accepts (binary offset 218437250).
-const STOP_REASONS = ['end_turn', 'max_tokens', 'stop_sequence', 'tool_use', 'refusal', 'pause_turn', 'model_context_window_exceeded'];
+export const STOP_REASONS = ['end_turn', 'max_tokens', 'stop_sequence', 'tool_use', 'refusal', 'pause_turn', 'model_context_window_exceeded'];
 
 const DELTA_KINDS: Record<string, BlockState['kind'][]> = {
   text_delta: ['message'],

@@ -16,7 +16,7 @@ Think of it as a universal plug adapter: your tool only speaks OpenAI's "languag
 |---|---|
 | OpenAI compatible | Any tool that speaks the OpenAI format works once you change `base_url` |
 | Two kinds of accounts | One gateway can serve a ChatGPT (Codex) login and a Claude Code subscription login at the same time |
-| Three endpoints | `/v1/models`, `/v1/responses`, `/v1/chat/completions`, with streaming and tool calls |
+| Five endpoints | `/v1/models`, `/v1/responses`, `/v1/chat/completions`, with streaming and tool calls; plus `/v1/messages`, passed through unchanged for the official Claude Code and downgraded (rebuilt into the official shape) for other clients, and `/backend-api/codex/*`, for the official Codex CLI only, passed through unchanged (see "官方 Claude Code 連 gateway", "其他 Anthropic client（降轉）" and "官方 Codex CLI 連 gateway" in the [user guide](docs/GUIDE.md)) |
 | Multiple accounts | One home per account, auto-named `codex1`, `codex2`, `claude1`…; pick an account with a model prefix, e.g. `codex2/gpt-5.6-terra` |
 | Follows the official rules | Request format, headers, and token refresh follow how the official CLIs do it; see "How close to official?" below |
 | Local by default | Listens on `127.0.0.1` with no API key by default; to serve other machines, use `--host` with `AGENT_GATEWAY_API_KEY` (see "對外開放" in the [user guide](docs/GUIDE.md)) |
@@ -38,12 +38,17 @@ Think of the official CLI as the "answer key", always worth 100 points. We treat
 | Codex | Official Codex CLI | **100** (baseline) | `references/codex` `0d58012` | [Codex protocol diff §4.1.1](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) |
 | Codex | **agent-gateway** | **82.35** | `dfb0d6c` | Same as above |
 | Codex | Unsloth | 35.29 | `references/unsloth` `1fdcdb5` | Same as above |
+| Claude | Claude pass-through (official Claude Code → `/v1/messages`) | **100** (scored separately: all 28 judgeable items match; 93.33–100 once all 30 are known) | native 2.1.302 | [Claude similarity §3](docs/ANTHROPIC_CLAUDE_CODE_PROVIDER_SIMILARITY.md), [Claude protocol diff §13](docs/CLAUDE_UPSTREAM_PROTOCOL_DIFF.md) |
+| Codex | Codex pass-through (official Codex → `/backend-api/codex/*`) | **100** (scored separately: 17/17) | Codex CLI 0.163.0 | [Codex protocol diff §4.1.1](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md), [Codex WebSocket transport §11](docs/CODEX_WEBSOCKET_TRANSPORT.md) |
 
 - Claude and Codex use different question sets: Claude has 30 questions in 6 groups; Codex only compares 17 endpoint/header rows. Do not compare scores across the two.
 - The score only measures "does it connect like the official tool". It is not a quality score, and it does not guarantee the tool won't be recognized as unofficial.
 - On the Codex path, the User-Agent deliberately carries our own name `agent-gateway`, so that question scores zero.
 - Strictest Codex count: also include the 8 extra headers the official CLI sends only under certain conditions (neither side sends them). Then gateway scores 56 and Unsloth 24.
-- Evaluated on 2026-10-17; the official Claude evidence reuses the records from native 2.1.299.
+- The 2b downgrade path (other Anthropic clients → `/v1/messages`) uses the Claude score of 65 as its baseline: it shares one assembly layer with the Claude path of `/v1/responses`.
+- The 100 for the two pass-through paths is scored separately: the upstream request is built by the official client itself, so every judgeable item matches the official tool. Claude uses the same 30-item rubric, with the native 2.1.302 the client actually runs as its baseline: all 28 judgeable items match, D5 (TLS fingerprint) and F2 (full 401 strategy) stay unknown because the official rules are not confirmed, and the range once all 30 are known is 93.33–100. Codex is 17/17. This counts only against the official tool, not the common-set method shared with CLIProxyAPI, so it cannot be compared directly with 65/42.78.
+- What the 100 does not cover: the TLS and HTTP implementation differs (the gateway uses Node `https`; the official tools use Bun, reqwest and tungstenite); the token is another credential of the same account; `host` and `content-length` carry this hop's values; Claude's count_tokens is relayed only for bound sessions. The score does not mean the behavior is identical to the official tool.
+- Dates and baselines: the original scores were evaluated on 2026-10-17, and the official Claude evidence reuses the records from native 2.1.299; the two pass-through rows were added on 2026-10-18 against native 2.1.302 and Codex CLI 0.163.0 (Claude's A1–A4 still reuse the 2.1.299 judgments).
 
 ## Quick start
 
@@ -117,7 +122,7 @@ These documents are written in Traditional Chinese.
 | [Claude protocol diff](docs/CLAUDE_UPSTREAM_PROTOCOL_DIFF.md) | Claude upstream headers, OAuth, SSE, and deviations |
 | [EasyCLIProxyAPI comparison](docs/CLAUDE_EASYCLIPROXY_COMPARISON.md) | EasyCLIProxyAPI/CLIProxyAPI integration and credential review |
 | [Codex protocol diff](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) | Codex upstream compared with Unsloth and the official Codex CLI, plus similarity |
-| [Codex WebSocket transport](docs/CODEX_WEBSOCKET_TRANSPORT.md) | The official default WebSocket incremental transport: not implemented in the gateway yet, with options and risks |
+| [Codex WebSocket transport](docs/CODEX_WEBSOCKET_TRANSPORT.md) | WebSocket is implemented on the official Codex CLI pass-through path (`/backend-api/codex/*`); the OpenAI-compatible path (`/v1/responses`) still uses HTTP, and option B (a gateway-managed upstream WebSocket) is not implemented. Also covers the evaluation, options and risks |
 | [Mascot and icon](assets/README.md) | Image assets, ComfyUI workflows, and how to remake them |
 
 ## Development

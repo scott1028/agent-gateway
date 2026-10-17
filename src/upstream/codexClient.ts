@@ -20,6 +20,11 @@ export type PostResponsesOptions = {
 export type CodexClient = {
   postResponses: (request: ResponsesRequest, options: PostResponsesOptions) => Promise<Response>;
   getModels: () => Promise<CodexModel[]>;
+  // Native relay (src/upstream/codexRelay.ts): the official client's own request goes to this
+  // backend with this home's credentials.
+  baseUrl: string;
+  getCredentials: () => Promise<Credentials>;
+  recoverUnauthorized: (failedAccessToken: string) => Promise<Credentials>;
 };
 
 type CodexClientDeps = {
@@ -88,5 +93,5 @@ export const createCodexClient = ({ auth, config, authPath, fetchFn = fetch, now
     return body.models ?? [];
   };
 
-  return { postResponses, getModels };
+  return { postResponses, getModels, baseUrl: config.baseUrl, getCredentials: auth.getCredentials, recoverUnauthorized: auth.recoverUnauthorized };
 };

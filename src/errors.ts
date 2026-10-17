@@ -1,4 +1,4 @@
-import type { Json, OpenAiErrorBody, ResponsesEvent } from './types.js';
+import type { AnthropicErrorBody, Json, OpenAiErrorBody, ResponsesEvent } from './types.js';
 
 export type ProxyError = Error & {
   status: number;
@@ -43,6 +43,12 @@ export const isProxyError = (error: unknown): error is ProxyError =>
 
 export const toOpenAiErrorBody = (error: ProxyError): OpenAiErrorBody => ({
   error: { message: error.message, type: error.type, param: null, code: error.code ?? null },
+});
+
+// The native Claude relay answers its own errors in the Messages API shape Claude Code reads.
+export const toAnthropicErrorBody = (error: ProxyError): AnthropicErrorBody => ({
+  type: 'error',
+  error: { type: error.type, message: error.message },
 });
 
 const parseJson = (text: string): Json | undefined => {

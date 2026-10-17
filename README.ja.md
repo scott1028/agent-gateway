@@ -16,7 +16,7 @@ agent-gateway は、あなたのパソコンで動く小さな中継所です。
 |---|---|
 | OpenAI 互換 | OpenAI 形式に対応したツールなら、`base_url` を変えるだけで使えます |
 | 2 種類のアカウント | 1 つの gateway で ChatGPT（Codex）と Claude Code のサブスクリプションログインを同時に扱えます |
-| 3 つの endpoint | `/v1/models`、`/v1/responses`、`/v1/chat/completions`。ストリーミングと tool calls に対応 |
+| 5 つの endpoint | `/v1/models`、`/v1/responses`、`/v1/chat/completions`。ストリーミングと tool calls に対応。ほかに `/v1/messages`（公式 Claude Code はそのまま転送、その他の client は公式の形に組み直す降轉）と、公式 Codex CLI 専用の `/backend-api/codex/*`（そのまま転送）があります（[利用ガイド](docs/GUIDE.md)の「官方 Claude Code 連 gateway」「其他 Anthropic client（降轉）」「官方 Codex CLI 連 gateway」を参照） |
 | 複数アカウント | アカウントごとに home を 1 つ用意し、`codex1`、`codex2`、`claude1`… と自動で名前が付きます。model の接頭辞でアカウントを選びます（例：`codex2/gpt-5.6-terra`） |
 | 公式のルールどおりに接続 | リクエスト形式、header、token の更新方法は公式 CLI のやり方に合わせています。下の「公式とどれくらい似ている？」を参照 |
 | 基本はローカル専用 | 初期設定では `127.0.0.1` だけで待ち受け、API key は不要です。ほかのマシンから使うときは `--host` と `AGENT_GATEWAY_API_KEY` を設定します（[利用ガイド](docs/GUIDE.md)の「對外開放」を参照） |
@@ -38,12 +38,17 @@ agent-gateway は、あなたのパソコンで動く小さな中継所です。
 | Codex | 公式 Codex CLI | **100**（基準） | `references/codex` `0d58012` | [Codex 通信差異 §4.1.1](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) |
 | Codex | **agent-gateway** | **82.35** | `dfb0d6c` | 同上 |
 | Codex | Unsloth | 35.29 | `references/unsloth` `1fdcdb5` | 同上 |
+| Claude | Claude そのまま転送（公式 Claude Code → `/v1/messages`） | **100**（別計算：判定できる 28 項目はすべて一致。30 項目がそろうと 93.33–100） | native 2.1.302 | [Claude 類似度 §3](docs/ANTHROPIC_CLAUDE_CODE_PROVIDER_SIMILARITY.md)、[Claude 通信差異 §13](docs/CLAUDE_UPSTREAM_PROTOCOL_DIFF.md) |
+| Codex | Codex そのまま転送（公式 Codex → `/backend-api/codex/*`） | **100**（別計算：17／17） | Codex CLI 0.163.0 | [Codex 通信差異 §4.1.1](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md)、[Codex WebSocket 転送 §11](docs/CODEX_WEBSOCKET_TRANSPORT.md) |
 
 - Claude と Codex では問題が違います。Claude は 30 問・6 グループ、Codex は endpoint／header の 17 項目だけを比べています。両者のスコアは比べられません。
 - スコアは「公式と同じ接続のしかたか」だけを見ています。品質の点数ではなく、非公式ツールだと見抜かれないことも保証しません。
 - Codex 経路の User-Agent にはあえて自分の名前 `agent-gateway` を入れているため、その問題は 0 点です。
 - Codex の最も厳しい数え方：公式が条件付きで送る 8 つの header も含めると（どちらも送っていません）、gateway は 56、Unsloth は 24 です。
-- 評価日は 2026-10-17 です。Claude の公式側の証拠は native 2.1.299 の記録をそのまま使っています。
+- 2b の降轉（ほかの Anthropic client → `/v1/messages`）は Claude の 65 点を基準として使います。`/v1/responses` の Claude 経路と同じ組み立て層を共有しているためです。
+- 2 つのそのまま転送の 100 点は別計算です。上流へのリクエストは公式 client 自身が組み立てるため、判定できる項目はすべて公式と一致します。Claude は同じ 30 項目の rubric を使い、client が実際に使う native 2.1.302 を基準にしています。判定できる 28 項目はすべて一致し、D5（TLS 指紋）と F2（401 からの回復方針の全体）は公式側のルールが未確認のため不明のままです。30 項目がそろった場合の範囲は 93.33–100 です。Codex は 17／17 です。公式に対してだけ採点したもので、CLIProxyAPI と共通集合を取る方法ではないため、65／42.78 と直接比べることはできません。
+- 100 点に含まれないもの：TLS と HTTP の実装が違います（gateway は Node `https`、公式は Bun、reqwest、tungstenite）。token は同じアカウントの別の認証情報です。`host` と `content-length` はこの区間の接続の値です。Claude の count_tokens は紐付け済みの session だけを転送します。このスコアは公式と挙動が完全に同じという意味ではありません。
+- 評価日と基準：もとの採点は 2026-10-17 で、Claude の公式側の証拠は native 2.1.299 の記録をそのまま使っています。2 つのそのまま転送の行は 2026-10-18 に追加したもので、基準は native 2.1.302 と Codex CLI 0.163.0 です（Claude の A1–A4 は 2.1.299 での判定をそのまま使っています）。
 
 ## クイックスタート
 
@@ -117,7 +122,7 @@ codex exec -c 'model_providers.agent-gateway={ name = "agent-gateway", base_url 
 | [Claude 通信差異](docs/CLAUDE_UPSTREAM_PROTOCOL_DIFF.md) | Claude 上流の header、OAuth、SSE と、公式との違い |
 | [EasyCLIProxyAPI 比較](docs/CLAUDE_EASYCLIPROXY_COMPARISON.md) | EasyCLIProxyAPI／CLIProxyAPI の接続方法と認証情報の評価 |
 | [Codex 通信差異](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) | Codex 上流を Unsloth・公式 Codex CLI と比べた結果と類似度 |
-| [Codex WebSocket 転送](docs/CODEX_WEBSOCKET_TRANSPORT.md) | 公式が標準で使う WebSocket の差分送信：gateway では未実装。選択肢とリスク |
+| [Codex WebSocket 転送](docs/CODEX_WEBSOCKET_TRANSPORT.md) | 公式 Codex CLI のそのまま転送経路（`/backend-api/codex/*`）では WebSocket を実装済み。OpenAI 互換経路（`/v1/responses`）は今も HTTP で、方式 B（gateway が上流の WebSocket を管理する方式）は未実装。評価、選択肢、リスクも記載 |
 | [看板娘とアイコン](assets/README.md) | 画像素材、ComfyUI workflow、作り直す手順 |
 
 ## 開発

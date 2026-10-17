@@ -5,14 +5,17 @@ import { CLAUDE_BASE_URL, CLAUDE_TOKEN_URL } from '../constants.js';
 import type { ClaudeHome } from '../types.js';
 import { createClaudeAuthManager, readClaudeAccountMetadata } from './auth.js';
 import { createClaudeClient } from './client.js';
+import { cloakClaudeMessages, getClaudeCloakBody } from './cloakMessages.js';
 import { startClaudeCall } from './handleClaude.js';
 import { createClaudeModelCatalog } from './models.js';
 import { assertClaudeChatInput } from './normalizeRequest.js';
+import { createClaudeRelaySessions, relayClaudeCountTokens, relayClaudeMessages } from './relayMessages.js';
 import { createClaudeStateStore } from './state.js';
 import { parseClaudeSseStream } from './sse.js';
 import { translateClaudeStream } from './toResponsesEvents.js';
 
-export { startClaudeCall, assertClaudeChatInput, parseClaudeSseStream, translateClaudeStream, readClaudeAccountMetadata };
+export { startClaudeCall, assertClaudeChatInput, parseClaudeSseStream, translateClaudeStream, readClaudeAccountMetadata, relayClaudeMessages, relayClaudeCountTokens, createClaudeRelaySessions, cloakClaudeMessages, getClaudeCloakBody };
+export type { ClaudeRelaySessions } from './relayMessages.js';
 
 // Reads the login once so a missing or dead credential fails at startup with the login hint,
 // exactly like the Codex home check does. The account uuid is deliberately NOT captured here:

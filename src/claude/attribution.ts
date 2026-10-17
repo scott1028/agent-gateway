@@ -25,7 +25,7 @@ export const getClaudeEffectiveEntrypoint = (): string => {
 // the text; string content is used whole, an array only its first text block, and a candidate
 // without a top-level text block (images only, tool results) yields empty instead of searching
 // on. Computed before adjacent user items merge; system/developer are not user candidates.
-const getFirstUserText = (items: Json[]): string => {
+export const getClaudeFirstUserText = (items: Json[]): string => {
   for (const item of items) {
     if (item.type === 'function_call_output') return '';
     if (item.type !== 'message' || (item.role ?? 'user') !== 'user') continue;
@@ -49,12 +49,14 @@ const getClaudeFingerprint = (text: string): string => {
 // wSo alone falls back to
 // "unknown" for the raw env, but production runs behind the startup normalizer T, so the shared
 // effective entrypoint is used instead. The result is a system text block, never an HTTP header.
-export const getClaudeBillingHeader = (items: Json[]): string => {
+export const getClaudeBillingHeaderFromText = (firstUserText: string): string => {
   // ys at 214625500: only an explicit falsy string opts out; unset and empty stay enabled.
   const optOut = process.env.CLAUDE_CODE_ATTRIBUTION_HEADER;
   if (optOut !== undefined && ['0', 'false', 'no', 'off'].includes(optOut.toLowerCase().trim())) return '';
-  return `x-anthropic-billing-header: cc_version=${CLAUDE_CLI_VERSION}.${getClaudeFingerprint(getFirstUserText(items))}; cc_entrypoint=${getClaudeEffectiveEntrypoint()}; cch=00000;`;
+  return `x-anthropic-billing-header: cc_version=${CLAUDE_CLI_VERSION}.${getClaudeFingerprint(firstUserText)}; cc_entrypoint=${getClaudeEffectiveEntrypoint()}; cch=00000;`;
 };
+
+export const getClaudeBillingHeader = (items: Json[]): string => getClaudeBillingHeaderFromText(getClaudeFirstUserText(items));
 
 let claudeHasher: ReturnType<typeof xxhash> | undefined;
 

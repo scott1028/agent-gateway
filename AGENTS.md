@@ -52,6 +52,19 @@ So the rule is simple:
    - keep the difference as small as possible;
    - write down *why* in `docs/` or the README, with proof from a real
      run (like `npm run poc` output).
+   - User-approved exception, relay paths: some routes only pass along
+     a request the official tool built by itself (`POST /v1/messages`
+     and its `count_tokens` from the official Claude Code, and Codex's
+     `/backend-api/codex/*` for both HTTP and WebSocket). There we forward the client's own
+     User-Agent and other headers unchanged instead of saying
+     `agent-gateway`, because the client already *is* the official
+     tool. We only swap the token.
+   - User-approved exception, downgrade path: `POST /v1/messages` from
+     any other Anthropic client is rebuilt with the gateway's existing
+     official assembly (the one `/v1/responses` uses) and sent with
+     the gateway's own headers and pinned User-Agent. Only the request
+     shape is official; the tools, system texts and messages stay the
+     client's, so we **MUST NOT** claim the official client built it.
 
 ## Similarity check after upstream API changes
 

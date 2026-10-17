@@ -115,3 +115,8 @@ export type ChatChunk = Json & { object: 'chat.completion.chunk' };
 export type OpenAiErrorBody = {
   error: { message: string; type: string; param: string | null; code: string | null };
 };
+
+export type AnthropicErrorBody = {
+  type: 'error';
+  error: { type: string; message: string };
+};

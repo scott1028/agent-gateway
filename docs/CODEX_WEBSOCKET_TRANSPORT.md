@@ -1,10 +1,12 @@
-# Codex Responses WebSocket 傳輸：未實作
+# Codex Responses WebSocket 傳輸：已實作透明轉送（方案 A 的官方路線版）
 
-評估日期：2026-10-17。
+評估日期：2026-10-17；實作：2026-10-18（第 11 節）。
 
 ## 1. 結論
 
-**狀態：未實作。** agent-gateway 的 Codex 上游只走 HTTP（`src/upstream/codexClient.ts:61`），每輪送上游的都是 `store:false` 加完整 input（`src/responses/normalizeResponsesRequest.ts:104`）。`previous_response_id` 只在 gateway 本機展開成完整 input（`src/responses/responseStore.ts:50-71`），上游看不到這個 id（`test/responses/previousResponse.test.ts:80-96`）。
+**狀態：已實作透明轉送（方案 A 的官方路線版）。** 官方 Codex CLI 設 `openai_base_url = "http://127.0.0.1:8765/backend-api/codex"` 時，會用內建的 OpenAI provider 和自己的 ChatGPT 登入，把 gateway 當成 ChatGPT backend；gateway 在 `/backend-api/codex/*` 轉送 HTTP 與 WebSocket，只換 `authorization`（第 11 節）。
+
+以下第 1 到 10 節是動工前的評估，描述的是 OpenAI 相容路徑。那條路徑至今不變：`/v1/responses` 的 Codex 上游只走 HTTP（`src/upstream/codexClient.ts:61`），每輪送上游的都是 `store:false` 加完整 input（`src/responses/normalizeResponsesRequest.ts:104`）。`previous_response_id` 只在 gateway 本機展開成完整 input（`src/responses/responseStore.ts:50-71`），上游看不到這個 id（`test/responses/previousResponse.test.ts:80-96`）。
 
 官方 Codex 連 ChatGPT backend 時預設走 Responses WebSocket，HTTP 是退路。在同一條連線上，條件成立時官方只送增量 input 並帶 `previous_response_id`（第 3、5 節）。這是 gateway 與官方在傳輸上的差異。
 
@@ -21,7 +23,7 @@ Claude 無法比照：Messages API 沒有伺服器端狀態，只能靠 prompt c
 |---|---|
 | 官方 Codex CLI | `references/codex` `0d58012ec2`；下文官方路徑都相對於 `references/codex/codex-rs/` |
 | CLIProxyAPI，以下簡稱 CPA | `references/CLIProxyAPI` `5fc580b1`（v8.0.29）；下文 CPA 路徑都相對於該資料夾 |
-| agent-gateway | `1c47015` |
+| agent-gateway | 評估時 `1c47015`；第 11 節的實作在本工作區（未提交） |
 | Node.js | `v22.22.3` |
 | 評估日期 | 2026-10-17 |
 
@@ -106,6 +108,7 @@ Claude 無法比照：Messages API 沒有伺服器端狀態，只能靠 prompt c
 
 - Node `v22.22.3` 內建的 `WebSocket`（undici）接受 `new WebSocket(url, { headers })`，建構時不會丟錯（本機只驗證到建構這一步）。**自訂 headers 實際有沒有在握手時送出、上游有沒有收到，尚未驗證。** 驗證不了就得加 `ws` 套件；目前 `package.json` 的 dependencies 只有 `xxhash-wasm`。
 - 下游 WebSocket endpoint 需要處理 HTTP upgrade。`node:http` 的 `upgrade` 事件做得到，但 frame 解析仍需要 `ws` 之類的套件。
+- （2026-10-18 更新）實作改用 byte tunnel，完全不解析 frame，所以 gateway 本身不需要 WebSocket 函式庫。`ws` 已列在 dependencies（PoC 腳本加的），gateway 只在測試和 `scripts/wsPoc.ts` 用到它。
 
 ## 9. 風險
 
@@ -131,3 +134,50 @@ Claude 無法比照：Messages API 沒有伺服器端狀態，只能靠 prompt c
    - 426 退回：握手回 `426 Upgrade Required` 時，改走現有的 HTTP 全量路徑（第 3 節）。
    - `previous_response_not_found`：收到時丟棄連線，重建連線後送完整 input（第 6 節）。
 3. B 暫緩。只有在「HTTP client 加 `previous_response_id`」是主要用例，而且量大到 cache 也撐不住時才重新評估，並且要接受偏離官方行為的風險。
+
+## 11. 已實作：官方路線的透明轉送（`src/upstream/codexRelay.ts`）
+
+### 11.1 擷取證據
+
+兩次都用 Codex CLI 0.163.0 的 `codex exec` 連本機 capture server，沒有打上游。紀錄在 supervisor scratchpad 的 `capture/codex-ws.jsonl`、`capture/codex-official.jsonl`，摘要見 `.tmp/codex-ws-capture.md`。
+
+- **自訂 provider**（`supports_websockets=true`）：只有一條 WS，打在 base URL 加上 `/responses`；先送 prewarm（`generate:false`），之後的 frame 帶 `previous_response_id` 只送增量。
+- **官方路線**（`openai_base_url="http://127.0.0.1:18772/backend-api/codex"`，model 是 Lite 的 `gpt-6.1-sol`）：
+  - HTTP 只有 `GET /backend-api/codex/models?client_version=0.163.0`，headers 依序是 `version`、`authorization`、`chatgpt-account-id`、`originator`、`user-agent`、`accept`、`host`，**沒有** `connection`。
+  - WS 有兩條（主 session 與 guardian 子 agent），都打 `/backend-api/codex/responses`。握手 headers 的順序是 `host`、`connection`、`upgrade`、`sec-websocket-version`、`sec-websocket-key`，接著是 app headers（`chatgpt-account-id`、`authorization`、`user-agent`、`originator`、`openai-beta`、`version`、`x-codex-beta-features`、`x-client-request-id`、`session-id`、`thread-id`、`x-codex-window-id`、`x-codex-turn-metadata`、`x-codex-routing-hint`），最後是 `sec-websocket-extensions: permessage-deflate; client_max_window_bits`。
+  - frame 照官方 Lite 形狀：先 prewarm，再帶 `previous_response_id` 送增量。
+
+### 11.2 gateway 的做法
+
+| 項目 | 做法 |
+|---|---|
+| 路由 | `/backend-api/codex/` 底下的所有 HTTP method，以及這個路徑底下的 WebSocket upgrade。其他路徑的 upgrade 一律回 404。 |
+| API key | 啟用 `AGENT_GATEWAY_API_KEY` 時，這組路由一律回 `403 permission_error`（`api_key_unsupported`）。內建 openai provider 無法另外加 header：`model-provider-info/src/lib.rs:699-733` 只允許 Bedrock 覆寫 `http_headers`。沒啟用時沿用 loopback Host 檢查。 |
+| 選帳號 | client 的 `chatgpt-account-id` 對每個 Codex home 的 `getCredentials().accountId`；沒帶或對不上回 `400 account_mismatch`，不會呼叫上游。這個 header 不是 CORS safelist header，瀏覽器頁面不經過 preflight 就送不出來。 |
+| 送出前復核帳號 | 每次真正送出前（第一次，以及 401 恢復後的重送），用這次送出所用的 credentials 再比一次 account id：token 和 account id 來自同一份 credentials，所以不會用另一個帳號的 token 送出。WS 握手也一樣。 |
+| HTTP 轉送 | 用 `src/utils/rawRelay.ts` 的 raw `node:https`（和 Claude 原生轉送共用）。headers 依 rawHeaders 原樣送出，`host`、`authorization` 在原位置換值；`content-length` 只在 client 有送或有 body 時才填；移除 `transfer-encoding`、`keep-alive`、`upgrade`、`x-agent-gateway-api-key`。path 和 query 用 `req.url` 原文。回應不解壓、不跟隨 redirect，status、status 訊息、headers、body 原樣轉回。 |
+| WS 轉送 | byte tunnel：client 的握手原樣轉給上游，只換 `host` 和 `authorization`（`sec-websocket-key`、壓縮 offer 都是 client 自己的）。上游回 101 時，把上游的 101 原樣寫回 client（含 `x-codex-turn-state`、`openai-model`、`x-models-etag`、`x-reasoning-included`），之後兩條 socket 直接對接：frame、壓縮、ping／pong、close code 都在 Codex 和上游之間端到端進行，gateway 不解析也不改寫。 |
+| 上游拒絕握手 | 426、429 等非 101 的回應，以相同 status、status 訊息、headers 和 body（上限 16 KB）回給 client，不 upgrade；Codex 收到 426 會照官方規則退回 HTTP。 |
+| 401 | HTTP 和 WS 握手都一樣：先終止（destroy）不再使用的第一個 401 response 和它的連線，再呼叫該 home 的 `recoverUnauthorized`，復核帳號後重送或重新握手一次；仍是 401 就把這個最後的 401 原樣轉回。 |
+| timeout 與取消 | 每個 WS 握手的生命週期在第一次非同步帳號解析之前就建立：選帳號、取得 credentials、401 恢復、兩次握手與讀取被拒的 body 都在同一個絕對期限內，沿用 Codex 的 `DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS`（15 秒，`model-provider-info/src/lib.rs:71`）。期限到了先回 `504 upstream_timeout`；正在進行的 refresh 不會被中止（它要保存輪替後的 token），完成後也不會再對上游發出請求；已取消的請求也不會再開始新的 credentials 讀取或 refresh，帳號掃描會停在當下的 home，不會換到下一個。client 送出 FIN（`end`）或斷線時立刻取消，同樣不會再發新的上游請求。每次建立上游 request 之前都會檢查是否已取消。HTTP 轉送不另設 timeout，由 client 自己的 timeout 和斷線中止處理，但同樣在每次送出前檢查 client 是否已離開。 |
+| 斷線 | 任一端正常關閉（close frame 加 FIN）會沿著 pipe 傳到另一端；異常斷線會直接拆掉另一端，不留連線或 timer。 |
+| 錯誤格式 | gateway 自己產生的錯誤一律用 OpenAI 格式；WS 在 upgrade 之前就以 HTTP 狀態碼回應。 |
+
+### 11.3 和官方直連的差異
+
+- `host` 必然是上游的 host；`authorization` 是 gateway home 的 token（同帳號）。
+- headers 以 raw 陣列加 `setDefaultHeaders:false` 送出：重複的同名 header 保留原本的順序和大小寫，client 沒送 `connection` 時（例如 `GET /models`）也不會自動補上。
+- 手寫的 101 與被拒回應的 head 以 latin1 bytes 寫回，非 ASCII 的 header octets（obs-text）原樣保留；body 維持原本的 bytes。
+- 握手和 HTTP 請求由 gateway 的 Node `https` 送出，TLS 指紋、HTTP 版本與連線重用行為沒有和官方 client 比對。tunnel 建立之後的 frame 是 client 原本的 bytes。
+- UA 照轉 client 自己的值（使用者核准的轉送例外，見 `AGENTS.md`）。
+
+### 11.4 驗證狀態
+
+- [v] `test/upstream/codexRelay.test.ts`（本機 loopback wire-level：HTTP 上游是 `http.createServer`，WS 上游是 `ws` server，client 是 raw TCP 或 `ws`）：
+  - HTTP：`GET /models` 只換 `authorization`（以及 `host`），沒有多出 `accept-language`、`sec-fetch-mode`、`content-length`、`connection`；`POST /responses` body 逐 byte 相同，`Constructor`、`__proto__` 這類 header 的值保留；原始 query、gzip 錯誤 body、302 原樣轉回；401 恢復後重送同一份 body；帳號不同、沒帶 account id、absolute-form、啟用 API key 都不呼叫上游；兩種換帳號時機都拒絕且沒有用 B 帳號 token 送出；client 斷線中止上游；debug 2／3 不印 token。
+  - 生命週期：HTTP 與 WS 的第一個 401 body 一直不結束時，重試成功後舊的那次連線已關閉；401 之後 OAuth 很慢時，在期限附近就回 504、refresh 照常完成並保存，之後沒有第二次握手；client 在 proactive refresh 進行中斷線，之後沒有任何上游請求；握手等待中 client 送出 FIN，上游嘗試立刻關閉；正式常數是 15000 ms。
+  - header 保真：重複 header 的原始順序與大小寫（Codex 與 2a 都有測）；101 與 426 的 head 含 latin1 obs-text 時逐 byte 相同。
+  - WS：握手 headers 只換 `host` 和 `authorization`，順序和大小寫都不變；上游的 101（含 `x-codex-turn-state` 等）原樣回到 client，`Sec-WebSocket-Accept` 對得上 client 的 key；text 和 binary message 雙向逐 byte 相同（含帶 `previous_response_id` 的增量 frame，上游開了壓縮）；上游 426 原樣回傳且不 upgrade；被拒的 body 上限 16 KB；401 後重新握手；帳號不同與 401 時換帳號都拒絕；close code 和 reason 雙向一致；握手逾時回 504 並關閉上游連線；API key、非轉送路徑、非 loopback Host 都拒絕 upgrade。
+  - fixture 照官方路線擷取的 header 順序與 frame 形狀改寫，所有 id、token 和文字都是假的。
+- [v] 真實上游端對端（使用者手動執行，2026-10-18）：`codex exec -c 'openai_base_url="http://127.0.0.1:8765/backend-api/codex"' "say ok"` 回 `ok`，model 是 `gpt-6.1-sol`，tokens used 24,378。gateway 開 `--debug 1` 重跑一次，log 有 `GET /backend-api/codex/models?client_version=0.163.0 200` 兩次，以及 `GET /backend-api/codex/responses 101` 兩次（主 session 和 guardian 子 agent），確認走的是 WebSocket，沒有退回 HTTP。
+- [ ] 未驗證：TLS 指紋、guardian 專屬的 replay／恢復等完整行為（連線本身已在上面的 E2E 看到 101，wire-level 測試沒有另外測 guardian）、remote compaction 等其他路徑、60 分鐘連線上限之後的實際重連。

@@ -16,7 +16,7 @@ agent-gateway 是一個跑在你電腦上的小轉接站。它讓其他 AI 工�
 |---|---|
 | OpenAI 相容 | 支援 OpenAI 格式的工具，改 `base_url` 就能用 |
 | 兩種帳號 | 同一個 gateway 可以同時接 ChatGPT（Codex）和 Claude Code 的訂閱登入 |
-| 三個 endpoint | `/v1/models`、`/v1/responses`、`/v1/chat/completions`，支援串流和 tool calls |
+| 五個 endpoint | `/v1/models`、`/v1/responses`、`/v1/chat/completions`，支援串流和 tool calls；另有 `/v1/messages`：官方 Claude Code 原樣轉送，其他 client 走降轉；以及 `/backend-api/codex/*`，只支援官方 Codex CLI，原樣轉送（見[使用指南](docs/GUIDE.md)的「官方 Claude Code 連 gateway」、「其他 Anthropic client（降轉）」、「官方 Codex CLI 連 gateway」） |
 | 多帳號 | 每個帳號一個 home，自動取名 `codex1`、`codex2`、`claude1`…；用 model 前綴選帳號，例如 `codex2/gpt-5.6-terra` |
 | 照官方規矩連線 | request 格式、header、token 更新方式照官方 CLI 的做法，見下方「跟官方有多像？」 |
 | 預設只在本機 | 預設只聽 `127.0.0.1`，不需要 API key；要給其他機器用時，用 `--host` 加 `AGENT_GATEWAY_API_KEY`（見[使用指南](docs/GUIDE.md)的「對外開放」） |
@@ -38,12 +38,17 @@ agent-gateway 是一個跑在你電腦上的小轉接站。它讓其他 AI 工�
 | Codex | 官方 Codex CLI | **100**（基準） | `references/codex` `0d58012` | [Codex 通訊差異 §4.1.1](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) |
 | Codex | **agent-gateway** | **82.35** | `dfb0d6c` | 同上 |
 | Codex | Unsloth | 35.29 | `references/unsloth` `1fdcdb5` | 同上 |
+| Claude | Claude 原樣轉送（官方 Claude Code → `/v1/messages`） | **100**（另計：可判定 28 項全部符合，補齊後 93.33–100） | native 2.1.302 | [Claude 相似度 §3](docs/ANTHROPIC_CLAUDE_CODE_PROVIDER_SIMILARITY.md)、[Claude 通訊差異 §13](docs/CLAUDE_UPSTREAM_PROTOCOL_DIFF.md) |
+| Codex | Codex 原樣轉送（官方 Codex → `/backend-api/codex/*`） | **100**（另計：17／17） | Codex CLI 0.163.0 | [Codex 通訊差異 §4.1.1](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md)、[Codex WebSocket 傳輸 §11](docs/CODEX_WEBSOCKET_TRANSPORT.md) |
 
 - Claude 和 Codex 的題目不一樣：Claude 有 30 題、分 6 組；Codex 只比 17 個 endpoint／header。兩邊的分數不能互相比。
 - 分數只看「連線方式像不像官方」。它不是品質分數，也不保證不會被認出是非官方工具。
 - Codex 路徑的 User-Agent 刻意寫自己的名字 `agent-gateway`，所以那一題不得分。
 - Codex 的最嚴格算法：把官方另外 8 個條件式 header 也算進去（兩邊都沒送），gateway 為 56、Unsloth 為 24。
-- 評估日期 2026-10-17；Claude 官方證據沿用 native 2.1.299 的記錄。
+- 2b 降轉（其他 Anthropic client → `/v1/messages`）沿用 Claude 的 65 分基準：它和 `/v1/responses` 的 Claude 路徑共用同一個組裝層。
+- 兩條原樣轉送的 100 是另計的：上游請求由官方 client 自己產生，可判定的項目都符合官方。Claude 用同一份 30 項 rubric，以 client 實際使用的 native 2.1.302 為基準：可判定的 28 項全部符合，D5（TLS 指紋）和 F2（完整 401 策略）因官方規則未確認維持未知，30 項補齊後的範圍是 93.33–100。Codex 是 17／17。這是只對官方計分，不是和 CLIProxyAPI 取共同集合的算法，不能直接和 65／42.78 比較。
+- 100 沒有涵蓋：TLS 與 HTTP 實作不同（gateway 用 Node `https`，官方是 Bun、reqwest、tungstenite）；token 是同帳號的另一份憑證；`host`、`content-length` 是這段連線的值；Claude 的 count_tokens 只轉送已綁定的 session。分數不代表行為完全等同官方。
+- 評估日期與基準：原有評分是 2026-10-17，Claude 官方證據沿用 native 2.1.299 的記錄；兩條原樣轉送列是 2026-10-18 新增，基準是 native 2.1.302 和 Codex CLI 0.163.0（Claude 的 A1–A4 仍沿用 2.1.299 的判定）。
 
 ## 快速開始
 
@@ -115,7 +120,7 @@ codex exec -c 'model_providers.agent-gateway={ name = "agent-gateway", base_url 
 | [Claude 通訊差異](docs/CLAUDE_UPSTREAM_PROTOCOL_DIFF.md) | Claude 上游的 header、OAuth、SSE 與偏離項目 |
 | [EasyCLIProxyAPI 比對](docs/CLAUDE_EASYCLIPROXY_COMPARISON.md) | EasyCLIProxyAPI／CLIProxyAPI 串接與憑證評估 |
 | [Codex 通訊差異](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) | Codex 上游與 Unsloth、官方 Codex CLI 的對照與相似度 |
-| [Codex WebSocket 傳輸](docs/CODEX_WEBSOCKET_TRANSPORT.md) | 官方預設的 WebSocket 增量傳送：gateway 尚未實作，以及可行選項與風險 |
+| [Codex WebSocket 傳輸](docs/CODEX_WEBSOCKET_TRANSPORT.md) | 官方 Codex CLI 的轉送路徑（`/backend-api/codex/*`）已實作 WebSocket；OpenAI 相容路徑（`/v1/responses`）仍走 HTTP，方案 B（gateway 自己管理上游 WebSocket）沒有實作。另含評估、選項與風險 |
 | [看板娘與 icon](assets/README.md) | 圖片素材、ComfyUI workflow 與重做步驟 |
 
 ## 開發

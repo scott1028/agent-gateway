@@ -5,6 +5,7 @@
 // official $0() generator at 218027148 (user-approved exception for the Claude path), and the
 // common Accept mirrors the SDK buildHeaders default at 218991503.
 import { randomUUID } from 'node:crypto';
+import type { IncomingMessage } from 'node:http';
 import type { ClaudeAuthManager } from './auth.js';
 import { getClaudeLoginHint } from './auth.js';
 import { getClaudeEffectiveEntrypoint, serializeClaudeRequest } from './attribution.js';
@@ -20,6 +21,7 @@ import {
   CLAUDE_SDK_VERSION,
 } from '../constants.js';
 import { createProxyError, fromUpstreamHttpError, isProxyError } from '../errors.js';
+import { replaceRawHeaders, sendRawRequest } from '../utils/rawRelay.js';
 import type { Json } from '../types.js';
 import type { ClaudeModel, ClaudeRequest } from './types.js';
 
@@ -29,8 +31,22 @@ export type PostMessagesOptions = {
   signal?: AbortSignal;
 };
 
+export type RawMessagesInput = {
+  body: Uint8Array;
+  // Client headers in rawHeaders form (name, value, ...), arrival order and casing.
+  headers: string[];
+  // Request target exactly as the client sent it.
+  pathAndQuery: string;
+  signal?: AbortSignal;
+  // Runs once the token for a send is known, before that send; throwing stops the send.
+  verifyAccount: () => Promise<void>;
+};
+
 export type ClaudeClient = {
   postMessages: (request: ClaudeRequest, options: PostMessagesOptions) => Promise<Response>;
+  // Native relay: the client's own bytes and headers go out with this home's token, and any
+  // upstream status comes back as the raw response instead of a gateway error.
+  postRawMessages: (input: RawMessagesInput) => Promise<IncomingMessage>;
   getModels: () => Promise<ClaudeModel[]>;
 };
 
@@ -135,23 +151,29 @@ export const createClaudeClient = ({
 }: ClaudeClientDeps): ClaudeClient => {
   const loginHint = getClaudeLoginHint(credentialsPath);
 
+  const toSendError = (error: unknown): Error => {
+    if (error instanceof Error && error.name === 'AbortError') return error;
+    if (isProxyError(error)) return error;
+    return createProxyError({ status: 502, code: 'upstream_unreachable', message: `Upstream request failed: ${String(error)}` });
+  };
+
   // Sends once; on 401 recovers credentials and retries once. Inference requests are never retried
   // beyond that, so a partial stream can never be duplicated.
-  const sendWithAuth = async (send: (accessToken: string) => Promise<Response>): Promise<Response> => {
+  const sendWithAuthRecovery = async (send: (accessToken: string) => Promise<Response>): Promise<Response> => {
     let accessToken = (await auth.getCredentials()).accessToken;
-    let response: Response;
     try {
-      response = await send(accessToken);
-      if (response.status === 401) {
-        await response.body?.cancel();
-        accessToken = (await auth.recoverUnauthorized(accessToken)).accessToken;
-        response = await send(accessToken);
-      }
+      const response = await send(accessToken);
+      if (response.status !== 401) return response;
+      await response.body?.cancel();
+      accessToken = (await auth.recoverUnauthorized(accessToken)).accessToken;
+      return await send(accessToken);
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') throw error;
-      if (isProxyError(error)) throw error;
-      throw createProxyError({ status: 502, code: 'upstream_unreachable', message: `Upstream request failed: ${String(error)}` });
+      throw toSendError(error);
     }
+  };
+
+  const sendWithAuth = async (send: (accessToken: string) => Promise<Response>): Promise<Response> => {
+    const response = await sendWithAuthRecovery(send);
     if (response.ok) return response;
     const proxyError = fromUpstreamHttpError(response.status, await response.text(), now());
     if (response.status === 401) proxyError.message = `${proxyError.message} ${loginHint}`;
@@ -176,6 +198,48 @@ export const createClaudeClient = ({
           : AbortSignal.timeout(CLAUDE_REQUEST_TIMEOUT_MS),
       }),
     );
+  };
+
+  // Raw node:http(s) on purpose (src/utils/rawRelay.ts): fetch adds accept-language/sec-fetch-mode,
+  // decodes gzip, follows redirects and re-encodes the query. host, authorization and
+  // content-length take this upstream's values in the client's own position; every other header
+  // goes out as received.
+  const sendRawMessages = (accessToken: string, input: RawMessagesInput): Promise<IncomingMessage> => {
+    const target = new URL(baseUrl);
+    // A Map, not an object: names such as `constructor` or `__proto__` must not hit Object.prototype.
+    const replacements = new Map([
+      ['host', target.host],
+      ['authorization', `Bearer ${accessToken}`],
+      ['content-length', String(input.body.length)],
+    ]);
+    return sendRawRequest({
+      baseUrl: target,
+      path: `${target.pathname.replace(/\/$/, '')}${input.pathAndQuery}`,
+      method: 'POST',
+      headers: replaceRawHeaders(input.headers, replacements),
+      body: input.body,
+      // Binary offset 219078970: SDK client timeout `skr() ?? 600000`.
+      signal: input.signal
+        ? AbortSignal.any([input.signal, AbortSignal.timeout(CLAUDE_REQUEST_TIMEOUT_MS)])
+        : AbortSignal.timeout(CLAUDE_REQUEST_TIMEOUT_MS),
+    });
+  };
+
+  // Same bounded recovery as sendWithAuthRecovery: one retry after a 401, never more. The home can
+  // be logged in again between any two steps, so the account is checked before every send.
+  const postRawMessages = async (input: RawMessagesInput): Promise<IncomingMessage> => {
+    let accessToken = (await auth.getCredentials()).accessToken;
+    try {
+      await input.verifyAccount();
+      const response = await sendRawMessages(accessToken, input);
+      if (response.statusCode !== 401) return response;
+      response.resume();
+      accessToken = (await auth.recoverUnauthorized(accessToken)).accessToken;
+      await input.verifyAccount();
+      return await sendRawMessages(accessToken, input);
+    } catch (error) {
+      throw toSendError(error);
+    }
   };
 
   // Binary offset 233338777: models.list({ betas: [oauth-2025-04-20], limit: 1000 }). The SDK Page
@@ -212,5 +276,5 @@ export const createClaudeClient = ({
     }
   };
 
-  return { postMessages, getModels };
+  return { postMessages, postRawMessages, getModels };
 };

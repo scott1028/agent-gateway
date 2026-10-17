@@ -2,26 +2,16 @@
 // Deliberately separate from responses/normalizeResponsesRequest.ts: none of the Codex
 // Responses Lite wrappers, Codex headers, store/include/prompt-cache fields or ultra->max rules
 // may reach Claude. Behaviour anchors are listed in docs/CLAUDE_UPSTREAM_PROTOCOL_DIFF.md.
-import {
-  CLAUDE_CODE_BETA,
-  CLAUDE_CLI_SYSTEM_PREFIX,
-  CLAUDE_CONTEXT_MANAGEMENT_BETA,
-  CLAUDE_EFFORT_BETA,
-  CLAUDE_INTERLEAVED_THINKING_BETA,
-  CLAUDE_MIN_THINKING_BUDGET_TOKENS,
-  CLAUDE_PROMPT_CACHING_SCOPE_BETA,
-  CLAUDE_REDACT_THINKING_BETA,
-  CLAUDE_STRUCTURED_OUTPUTS_BETA,
-  CLAUDE_THINKING_TOKEN_COUNT_BETA,
-} from '../constants.js';
 import { createProxyError } from '../errors.js';
 import type { Json } from '../types.js';
-import { getClaudeBillingHeader, getClaudeEffectiveEntrypoint } from './attribution.js';
-import { canonicalizeClaudeModelId, supportsClaudeEffort, supportsClaudeInterleavedThinking, supportsClaudeMidConversationSystem, supportsClaudeStructuredOutput } from './modelMetadata.js';
-import { getClaudeThinkingBudget, getClaudeThinkingMode, resolveClaudeThinking } from './settings.js';
+import { assembleClaudeRequest, type ClaudeNativeInput, type PreparedClaudeRequest } from './assembleRequest.js';
+import { getClaudeFirstUserText } from './attribution.js';
+import { getClaudeThinkingMode } from './settings.js';
 import { getClaudeAssistantBoundaries, getClaudeInputItems, isBoundaryNeutralItem, normalizeClaudeToolInput } from './state.js';
 import type { ClaudeAssistantBoundary } from './state.js';
-import type { ClaudeModelMetadata, ClaudeRequest, ClaudeSettings, ClaudeThinking, ClaudeTurnState } from './types.js';
+import type { ClaudeModelMetadata, ClaudeSettings, ClaudeTurnState } from './types.js';
+
+export type { PreparedClaudeRequest } from './assembleRequest.js';
 
 export type PrepareClaudeRequestInput = {
   body: Json;
@@ -37,15 +27,6 @@ export type PrepareClaudeRequestInput = {
   // Gateway session identity and the home's account record, sent as the official `metadata.user_id`
   // JSON envelope (nUe at binary offset 218996645). Omitted when the caller has no session.
   session?: { sessionId: string; accountUuid: string; deviceId?: string };
-};
-
-export type PreparedClaudeRequest = {
-  request: ClaudeRequest;
-  betas: string[];
-  // The configuration actually sent, including the final budget_tokens, so the next request of the
-  // same turn replays it unchanged instead of re-deriving it from a different max_output_tokens.
-  thinking: ClaudeThinking;
-  maxTokens: number;
 };
 
 const SUPPORTED_IMAGE_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
@@ -126,8 +107,9 @@ const toClaudeToolChoice = (toolChoice: unknown, parallelToolCalls: unknown): Js
 };
 
 // OpenAI structured output -> Claude output_config.format (rNr at binary offset 226584124, format
-// schema at 216817066). `json_object` has no equivalent in this release, so it stays rejected.
-const getClaudeOutputFormat = (body: Json, modelId: string): Json | undefined => {
+// schema at 216817066). `json_object` has no equivalent in this release, so it stays rejected. The
+// model's structured-output support is checked when the request is assembled.
+const getClaudeOutputFormat = (body: Json): Json | undefined => {
   const text = (body.text ?? {}) as Json;
   const format = text.format ?? body.response_format;
   if (format === undefined) return undefined;
@@ -142,9 +124,6 @@ const getClaudeOutputFormat = (body: Json, modelId: string): Json | undefined =>
   const schema = (wrapper as Json).schema;
   if (typeof schema !== 'object' || schema === null) {
     throw createProxyError({ status: 400, message: '`json_schema` structured output needs a `schema`' });
-  }
-  if (!supportsClaudeStructuredOutput(modelId)) {
-    throw createProxyError({ status: 400, message: `Model "${modelId}" does not support structured output` });
   }
   return { type: 'json_schema', schema };
 };
@@ -297,48 +276,6 @@ const getBoundaryState = (
   return resolved;
 };
 
-// The official cache builder (NNr at 226725197) marks ONE message: ryn at 226486727 scans
-// backwards for the last eligible message via oyn at 226486225. A user message is always
-// eligible; an assistant message only when its LAST block passes E7e at 226486043 (empty text,
-// thinking, redacted_thinking and fallback blocks are ineligible, tool_use IS eligible). An
-// assistant ending in thinking is skipped whole, so the marker moves to an EARLIER message,
-// never to an earlier block inside that same assistant. sNr at 226585288 / iNr at 226586013
-// then mark that message's last block with the default z4 marker at 226582681
-// ({type:"ephemeral"}; a ttl is only added as "1h" for allowlisted subscriber contexts, which
-// the gateway does not model). Tools carry no marker; the system side carries its own markers
-// on the prefix and joined-caller blocks ($Nr at 226727459 over the K_o mapping at 218995076).
-const isStampableLastBlock = (block: Json): boolean => {
-  if (block.type === 'text') return typeof block.text === 'string' && block.text !== '';
-  return block.type !== 'thinking' && block.type !== 'redacted_thinking' && block.type !== 'fallback';
-};
-
-const markTailBlock = (blocks: Json[], index: number): void => {
-  blocks[index] = { ...blocks[index], cache_control: { type: 'ephemeral' } };
-};
-
-const markLastEligibleMessage = (messages: Json[]): void => {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const content = messages[index]?.content;
-    if (!Array.isArray(content) || content.length === 0) continue;
-    const blocks = content as Json[];
-    if (messages[index]?.role === 'assistant') {
-      const last = blocks[blocks.length - 1] as Json | undefined;
-      if (last !== undefined && typeof last === 'object' && last !== null && isStampableLastBlock(last)) {
-        markTailBlock(blocks, blocks.length - 1);
-        return;
-      }
-      continue;
-    }
-    // sNr marks the last block after rkn at 226585570 drops empty/whitespace text blocks.
-    for (let block = blocks.length - 1; block >= 0; block -= 1) {
-      const candidate = blocks[block] as Json | undefined;
-      if (candidate?.type === 'text' && String(candidate.text ?? '').trim() === '') continue;
-      markTailBlock(blocks, block);
-      return;
-    }
-  }
-};
-
 // Malformed ordinary input must be a 400 before any state identity read, not a raw TypeError.
 // handleClaude runs this before computing conversation identities; prepareClaudeRequest runs it
 // again so direct callers get the same guarantee.
@@ -355,8 +292,9 @@ export const validateClaudeResponsesInput = (body: Json): void => {
   }
 };
 
-export const prepareClaudeRequest = (input: PrepareClaudeRequestInput): PreparedClaudeRequest => {
-  const { body, modelId, metadata, liveModel, settings, state, boundaryStates, session } = input;
+// Conversion layer: OpenAI items -> normalized native input. Signed boundary state is replayed here.
+const toClaudeNativeInput = (input: PrepareClaudeRequestInput): ClaudeNativeInput => {
+  const { body, modelId, metadata, state, boundaryStates } = input;
   validateClaudeResponsesInput(body);
   const items = getClaudeInputItems(body);
   const instructions = typeof body.instructions === 'string' ? body.instructions : undefined;
@@ -469,133 +407,35 @@ export const prepareClaudeRequest = (input: PrepareClaudeRequestInput): Prepared
 
   const tools = Array.isArray(body.tools) ? (body.tools as Json[]).map(toClaudeTool) : [];
   const isToolChoiceNone = body.tool_choice === 'none';
+  const toolChoice = isToolChoiceNone || tools.length === 0 ? undefined : toClaudeToolChoice(body.tool_choice, body.parallel_tool_calls);
   const reasoning = (body.reasoning ?? {}) as Json;
-  const explicitEffort = typeof reasoning.effort === 'string' ? reasoning.effort : undefined;
-  const thinking = resolveClaudeThinking({ modelId, metadata, settings, explicitEffort, pinned: pinned?.thinking });
-  const isThinkingEnabled = thinking.type !== 'disabled';
-
-  // The official client demotes a forced tool choice while thinking is active (binary offset
-  // 226635226). The gateway keeps the caller's explicit semantics instead, so the combination that
-  // upstream rejects is reported rather than silently rewritten.
-  let toolChoice = isToolChoiceNone || tools.length === 0 ? undefined : toClaudeToolChoice(body.tool_choice, body.parallel_tool_calls);
-  if (isThinkingEnabled && (toolChoice?.type === 'any' || toolChoice?.type === 'tool')) {
-    throw createProxyError({
-      status: 400,
-      message: `\`tool_choice\` "${String(toolChoice.type)}" cannot be combined with thinking on this model; send \`reasoning.effort: "none"\` or \`tool_choice: "auto"\``,
-    });
-  }
-
   if (body.max_output_tokens !== undefined && (typeof body.max_output_tokens !== 'number' || !Number.isInteger(body.max_output_tokens) || body.max_output_tokens <= 0)) {
     throw createProxyError({ status: 400, message: '`max_output_tokens` must be a positive integer' });
   }
-  const maxTokens =
-    typeof body.max_output_tokens === 'number'
-      ? body.max_output_tokens
-      : typeof liveModel?.max_tokens === 'number'
-        ? liveModel.max_tokens
-        : metadata?.maxOutputDefault ?? metadata?.maxOutputUpper;
-  if (maxTokens === undefined) {
-    throw createProxyError({ status: 400, message: `Unknown Claude model "${modelId}"; send \`max_output_tokens\`` });
-  }
-  if (metadata !== undefined && maxTokens > metadata.maxOutputUpper) {
-    throw createProxyError({ status: 400, message: `\`max_output_tokens\` exceeds the ${modelId} limit of ${metadata.maxOutputUpper}` });
-  }
-
-  const request: ClaudeRequest = { model: modelId, messages, max_tokens: maxTokens, stream: true };
-  // K_o tail branch at binary offset 218995076 via the $Nr block mapping at 226727459: the
-  // billing text (wSo at 218606801) carries no cache marker, the interactive CLI prefix (el at
-  // 218994031) is cached, and the remaining caller texts join with two newlines into ONE cached
-  // block. The gateway always sends the default ephemeral marker without a ttl (see doc §8).
-  const systemBlocks: Json[] = [];
-  const billingHeader = getClaudeBillingHeader(items);
-  if (billingHeader !== '') systemBlocks.push({ type: 'text', text: billingHeader });
-  systemBlocks.push({ type: 'text', text: CLAUDE_CLI_SYSTEM_PREFIX, cache_control: { type: 'ephemeral' } });
-  const callerText = callerTexts.join('\n\n');
-  request.system = systemBlocks;
-  markLastEligibleMessage(messages);
-  if (callerText !== '') {
-    const callerBlock = { type: 'text', text: callerText, cache_control: { type: 'ephemeral' } };
-    if (supportsClaudeMidConversationSystem(modelId)) {
-      // Mirrors references/CLIProxyAPI insertClaudeMidConversationSystemBlocks. Adjacent users
-      // are already merged. Native 2.1.299 marks this feature GA, so no beta header is needed.
-      messages.splice(1, 0, { role: 'system', content: [callerBlock] });
-    } else {
-      // Preserve system authority on legacy models instead of lowering it to a user reminder.
-      systemBlocks.push(callerBlock);
-    }
-  }
-  if (!isToolChoiceNone && tools.length > 0) request.tools = tools;
-  if (toolChoice !== undefined) request.tool_choice = toolChoice;
-  if (session !== undefined) {
-    // nUe at binary offset 218996645: metadata.user_id is a JSON string carrying device_id,
-    // account_uuid and session_id. device_id is the home's persisted `userID` (BO at 217681149);
-    // it is forwarded when the config has one and omitted when it does not, because the official
-    // fallback GENERATES and persists a new id into the official config, which the gateway never
-    // writes (see the protocol diff doc).
-    request.metadata = {
-      user_id: JSON.stringify({
-        ...(session.deviceId === undefined ? {} : { device_id: session.deviceId }),
-        account_uuid: session.accountUuid,
-        session_id: session.sessionId,
-      }),
-    };
-  }
-
-  const betas: string[] = [];
-  // SL at 217935458: the claude-code beta goes out for every canonical id that is not a haiku.
-  if (!canonicalizeClaudeModelId(modelId).includes('haiku')) betas.push(CLAUDE_CODE_BETA);
-  // references/CLIProxyAPI's subscription baseline, retaining native 2.1.299 model gates.
-  if (supportsClaudeInterleavedThinking(modelId, metadata)) {
-    betas.push(CLAUDE_INTERLEAVED_THINKING_BETA);
-    if (getClaudeEffectiveEntrypoint() === 'cli') betas.push(CLAUDE_REDACT_THINKING_BETA);
-    betas.push(CLAUDE_THINKING_TOKEN_COUNT_BETA, CLAUDE_CONTEXT_MANAGEMENT_BETA);
-  }
-  betas.push(CLAUDE_PROMPT_CACHING_SCOPE_BETA);
-  if (isThinkingEnabled) {
-    if (thinking.type === 'adaptive') {
-      request.thinking = { type: 'adaptive' };
-    } else {
-      // The budget floor is 1024 (226635226), so a smaller max_output_tokens can never leave room
-      // for thinking on a budget-form model; reject it before spending a network call.
-      if (maxTokens <= CLAUDE_MIN_THINKING_BUDGET_TOKENS) {
-        throw createProxyError({
-          status: 400,
-          message: `\`max_output_tokens\` must exceed the ${CLAUDE_MIN_THINKING_BUDGET_TOKENS}-token thinking budget floor on "${modelId}"; lower \`reasoning.effort\` or raise \`max_output_tokens\``,
-        });
-      }
-      const ceiling = Math.min(metadata?.maxOutputUpper ?? maxTokens, maxTokens) - 1;
-      if (pinned !== undefined && thinking.budgetTokens !== undefined && thinking.budgetTokens > ceiling) {
-        throw createProxyError({
-          status: 400,
-          message: `Cannot lower \`max_output_tokens\` mid-turn: this turn already budgets ${thinking.budgetTokens} thinking tokens`,
-        });
-      }
-      const budget = getClaudeThinkingBudget(thinking, metadata, maxTokens);
-      request.thinking = { type: 'enabled', budget_tokens: budget };
-      thinking.budgetTokens = budget;
-    }
-  } else if (getClaudeThinkingMode(modelId, metadata) !== undefined) {
-    // Binary offset 226633000: a model that allows disabling thinking gets an explicit disabled
-    // thinking block instead of an omitted one.
-    request.thinking = { type: 'disabled' };
-  }
-
-  const outputConfig: Json = {};
-  // tGe at 226583782: whenever the model supports effort (bb), the effort beta goes out, and a
-  // resolved effort string is sent as output_config.effort.
-  if (supportsClaudeEffort(modelId, metadata)) {
-    betas.push(CLAUDE_EFFORT_BETA);
-    if (thinking.effort !== undefined) outputConfig.effort = thinking.effort;
-  }
-  const format = getClaudeOutputFormat(body, modelId);
-  if (format !== undefined) {
-    outputConfig.format = format;
-    betas.push(CLAUDE_STRUCTURED_OUTPUTS_BETA);
-  }
-  if (Object.keys(outputConfig).length > 0) request.output_config = outputConfig;
-
-  return { request, betas, thinking, maxTokens };
+  const format = getClaudeOutputFormat(body);
+  return {
+    messages,
+    callerTexts,
+    tools,
+    ...(toolChoice === undefined ? {} : { toolChoice }),
+    isToolChoiceNone,
+    ...(typeof reasoning.effort === 'string' ? { explicitEffort: reasoning.effort } : {}),
+    ...(typeof body.max_output_tokens === 'number' ? { maxTokens: body.max_output_tokens } : {}),
+    ...(format === undefined ? {} : { format }),
+    firstUserText: getClaudeFirstUserText(items),
+    ...(pinned === undefined ? {} : { pinnedThinking: pinned.thinking }),
+  };
 };
+
+export const prepareClaudeRequest = (input: PrepareClaudeRequestInput): PreparedClaudeRequest =>
+  assembleClaudeRequest({
+    native: toClaudeNativeInput(input),
+    modelId: input.modelId,
+    ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
+    ...(input.liveModel === undefined ? {} : { liveModel: input.liveModel }),
+    settings: input.settings,
+    ...(input.session === undefined ? {} : { session: input.session }),
+  });
 
 // Chat -> Responses conversion (chat/toResponsesRequest.ts) keeps only the text parts of system,
 // assistant and tool messages. For Claude that lossy draft would change the conversation, so the

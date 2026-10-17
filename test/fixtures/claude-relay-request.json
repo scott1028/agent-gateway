@@ -1,0 +1,29 @@
+{
+  "path": "/v1/messages?beta=true",
+  "headers": {
+    "accept": "application/json",
+    "authorization": "Bearer client-oauth-token-fixture",
+    "content-type": "application/json",
+    "user-agent": "claude-cli/2.1.302 (external, sdk-cli)",
+    "x-claude-code-session-id": "00000000-0000-4000-8000-00000000c0de",
+    "x-stainless-arch": "x64",
+    "x-stainless-lang": "js",
+    "x-stainless-os": "Linux",
+    "x-stainless-package-version": "0.128.0",
+    "x-stainless-retry-count": "0",
+    "x-stainless-runtime": "node",
+    "x-stainless-runtime-version": "v26.3.0",
+    "x-stainless-timeout": "600",
+    "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-tool-changes-2026-07-01,advanced-tool-use-2025-11-20,effort-2025-11-24,dangerous-tool-use-2026-09-03,thinking-binding-controls-2026-08-01,afk-mode-2026-01-31,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07",
+    "anthropic-dangerous-direct-browser-access": "true",
+    "anthropic-version": "2023-06-01",
+    "x-app": "cli",
+    "x-claude-code-prompt-id": "00000000-0000-4000-8000-0000000000aa",
+    "x-claude-code-request-class": "main",
+    "x-client-request-id": "00000000-0000-4000-8000-0000000000bb",
+    "connection": "keep-alive",
+    "host": "127.0.0.1:18763",
+    "accept-encoding": "gzip, deflate, br, zstd",
+    "content-length": "1782"
+  }
+}

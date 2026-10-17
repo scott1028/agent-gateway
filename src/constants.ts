@@ -22,6 +22,8 @@ export const MODEL_CATALOG_TTL_MS = 5 * 60 * 1000;
 export const MAX_BODY_BYTES = 50 * 1024 * 1024;
 // Project-owned gateway memory cap for previous_response_id records (no upstream counterpart).
 export const RESPONSE_STORE_MAX_ENTRIES = 1000;
+// Project-owned cap for the Claude Code session -> home bindings that count_tokens relies on.
+export const CLAUDE_RELAY_SESSION_MAX_ENTRIES = 1000;
 
 // Verified by scripts/poc.ts: the backend accepts these fields and rejects most others
 // (temperature, top_p, metadata, user, truncation, safety_identifier, top_logprobs, ...).
@@ -49,6 +51,14 @@ export const LOCAL_HOSTNAMES = ['127.0.0.1', 'localhost', '[::1]'];
 // Bind addresses that stay on this machine; any other --host needs AGENT_GATEWAY_API_KEY.
 // No 'localhost': DNS or /etc/hosts decides where it binds.
 export const LOOPBACK_BIND_HOSTS = ['127.0.0.1', '::1'];
+// Project-owned: the Claude relay's Authorization is the client's own OAuth token, so the
+// gateway key arrives in this header instead (ANTHROPIC_CUSTOM_HEADERS) and is never relayed.
+export const GATEWAY_API_KEY_HEADER = 'x-agent-gateway-api-key';
+// Mirrors references/codex/codex-rs/model-provider-info/ DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS:
+// the whole upstream handshake of the Codex WebSocket relay must finish within it.
+export const CODEX_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
+// Project-owned cap for the body of a rejected upstream upgrade (426, 401, ...).
+export const CODEX_REJECTED_UPGRADE_BODY_BYTES = 16 * 1024;
 
 // Claude upstream. Values marked "binary" come from the pinned official release
 // /home/scott/.local/share/claude/versions/2.1.299 (SHA256 2d894a4b...d077,

@@ -5,7 +5,16 @@ import { createProxyError } from '../errors.js';
 import type { ResponseStore } from '../responses/responseStore.js';
 import type { DebugLevel, Json } from '../types.js';
 
-export type ProxyDeps = { accounts: Account[]; contextLength: number; defaultModelId?: string; debugLevel?: DebugLevel; apiKey?: string; now?: () => number };
+export type ProxyDeps = {
+  accounts: Account[];
+  contextLength: number;
+  defaultModelId?: string;
+  debugLevel?: DebugLevel;
+  apiKey?: string;
+  now?: () => number;
+  // Test seam; production uses CODEX_WEBSOCKET_CONNECT_TIMEOUT_MS.
+  codexWebSocketConnectTimeoutMs?: number;
+};
 
 export type RequestLog = { model?: string; upstreamRequestId?: string; ignoredKeys?: string[] };
 
@@ -25,7 +34,7 @@ export const SSE_HEADERS = {
   connection: 'keep-alive',
 };
 
-export const readJsonBody = async (req: IncomingMessage, limitBytes: number): Promise<Json> => {
+export const readRawBody = async (req: IncomingMessage, limitBytes: number): Promise<Buffer> => {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -33,9 +42,14 @@ export const readJsonBody = async (req: IncomingMessage, limitBytes: number): Pr
     if (size > limitBytes) throw createProxyError({ status: 413, message: `Request body exceeds ${limitBytes} bytes` });
     chunks.push(chunk as Buffer);
   }
+  return Buffer.concat(chunks);
+};
+
+export const readJsonBody = async (req: IncomingMessage, limitBytes: number): Promise<Json> => {
+  const rawBody = await readRawBody(req, limitBytes);
   let parsed: unknown;
   try {
-    parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    parsed = JSON.parse(rawBody.toString('utf8'));
   } catch {
     throw createProxyError({ status: 400, message: 'Request body must be valid JSON' });
   }

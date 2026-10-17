@@ -215,6 +215,108 @@ TTL：`z4` 只在 ttl 有值時才送 `ttl`，而主推論只把 `ttl:"1h"` 傳�
 
 ## 12. 對應原始碼
 
-- `src/claude/index.ts`（模組邊界：`createClaudeAccount` 與請求路徑）、`auth.ts`（憑證/refresh/scope）、`refreshLock.ts`（官方鎖）、`client.ts`（headers、`/v1/messages?beta=true`、`/v1/models`）、`sse.ts`（嚴格 SSE 解析）、`modelMetadata.ts`（pinned 能力表）、`settings.ts`（settings.json、thinking/effort）、`normalizeRequest.ts`（OpenAI→Claude）、`toResponsesEvents.ts`（Claude SSE→Responses 事件）、`state.ts`（回放狀態）、`handleClaude.ts`（兩端點共用路徑）、`models.ts`（目錄快取）。每個模組檔頭註解都寫明對應的官方來源與偏移。
+- `src/claude/index.ts`（模組邊界：`createClaudeAccount` 與請求路徑）、`auth.ts`（憑證/refresh/scope）、`refreshLock.ts`（官方鎖）、`client.ts`（headers、`/v1/messages?beta=true`、`/v1/models`）、`sse.ts`（嚴格 SSE 解析）、`modelMetadata.ts`（pinned 能力表）、`settings.ts`（settings.json、thinking/effort）、`normalizeRequest.ts`（OpenAI→正規化原生輸入，含簽章狀態回放）、`assembleRequest.ts`（system、cache marker、metadata、betas、thinking、`output_config` 的官方形狀組裝，§14 的降轉路徑共用）、`toResponsesEvents.ts`（Claude SSE→Responses 事件）、`state.ts`（回放狀態）、`handleClaude.ts`（兩端點共用路徑）、`models.ts`（目錄快取）。每個模組檔頭註解都寫明對應的官方來源與偏移。
 - 測試：`test/claude/{auth,refreshLock,client,sse,settings,modelMetadata,state,normalizeRequest,toResponsesEvents,endToEnd}.test.ts`、`test/chat/{toChatCompletion,reduceChatStream}.test.ts`（Claude 的 text 合併不插分隔符、Codex 維持空行）、`test/utils/http.test.ts`（`writeText` 背壓/斷線）。全部為 gateway 依 pinned 原始碼證據獨立撰寫的測試與 SSE fixtures。官方 repo 隨附的測試只有 `mods/{diff,sec-default,agents-md,telemetry}/` 等 mod 測試（supervisor-evidence.md 已盤點）：本報告檢查過其相關性，**沒有**可直接重用的核心 Messages/OAuth 傳輸測試套件；這些 mod 測試與 gateway 的傳輸實作無關，不構成對本節行為的驗證。
 - 手動 PoC：`scripts/claudePoC.ts`（`npm run poc:claude`）。腳本標頭寫明它實際驗證的項目與**不**涵蓋的項目（JSON Schema 請求、真實鎖競爭/CAS）。
+
+## 13. 原生轉送路徑（`POST /v1/messages` 與 `count_tokens`，只給官方 Claude Code）
+
+這條路徑上游看到的是 **client 自己產生的官方請求**：body 逐 byte 相同，headers 只換掉 `Authorization`（`host` 和 `content-length` 是這一段連線本身的值，見 §13.2）。gateway 不組請求，所以 §3.3、§6、§7、§8 的請求成形規則都不適用於這條路徑。
+
+### 13.1 基線與證據
+
+| 項目 | 內容 |
+|---|---|
+| 官方 Claude Code | native release `2.1.302`：`/home/scott/.local/share/claude/versions/2.1.302`，SHA256 `60d7eb7f12fbb28a52533fe8be5884097403562aa02dc73991a021c7067e29a5`，`GIT_SHA 2ef144e6f98c1c99d082b735e4b38f50e3391e55`，`BUILD_TIME 2026-10-16T15:52:41Z`。唯讀讀取，沒有執行。下列偏移屬於這個檔，和 §2 的 2.1.299 偏移不同。 |
+| client 偵測 | `references/CLIProxyAPI` v8.0.29 `internal/runtime/executor/helps/claude_client_detection.go` |
+
+- `GPo` @237985931：billing builder。`cch=00000;`，以及 2.1.302 新增的 `cc_prev_req`、`cc_prompt_id`、`cc_turn_origin`、`cc_prompt_index`／`cc_turn_index`，都只在 `provider==="firstParty" && xi()` 時加入。
+- `xi` @235237156：`_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL`（或 clientData 的 `assumesFirstPartyBaseUrl`）為真時直接回 true；否則只有沒設 `ANTHROPIC_BASE_URL`，或 host 是 `api.anthropic.com` 時才回 true。
+- `mUs` @238472365：SDK client 的建構。`defaultHeaders` 會併入 `ANTHROPIC_CUSTOM_HEADERS` 解析出的 headers（解析器 @236024731，每行一個 `Name: value`）。gateway API key 就是靠這條路從 client 送到 gateway。
+- count_tokens：`DFe` @243429208 用 `GU({source:"count_tokens",...})` @243429486 建 client，再呼叫 `K.beta.messages.countTokens` @243429649；body 只有 model、messages、tools、betas、thinking，**沒有 `metadata.user_id`**。失敗時記 log、回傳 null。
+  - session header：`GU` @238463851 的 `be={...Wl(),...}` @238464554，first-party 分支 `eu={...be,...$l(de,be)}` @238472426 成為 `defaultHeaders` @238473115。`Wl` @238462490 回傳 `{"x-app":…,"User-Agent":V0(),[J$t]:q()}`，`J$t="X-Claude-Code-Session-Id"` @237071983；`q()` 也是 `metadata.user_id.session_id` 的來源（@238382089）。`$l` 只會清掉 `Bs` @238455744 比對到的單一 header，fetch wrapper `Qw` @238481199 只加 header，所以這個 header 會送出。
+  - OAuth beta：count_tokens 的 betas 經 `lUt` @236024090 過濾，`lUt` 含 `Ake=k("oauth_auth","oauth-2025-04-20")` @236021122；訂閱者的 `NU` 規則 @237184217 會加入 `Ake`。
+- 擷取（全部只連本機 capture server，沒有打上游）：
+  1. 未登入、用 `ANTHROPIC_AUTH_TOKEN`，分別跑預設模式和加了 assume 變數。加了 assume 才有 `cch`、`cc_prompt_id` 等 billing 欄位，`advanced-tool-use`、`thinking-binding-controls`、`cache-diagnosis` 三個 beta，`x-claude-code-prompt-id`、`x-claude-code-request-class`、`x-client-request-id` 三個 header，以及 body 的 `diagnostics`；tools 也從 20 個變成 12 個。
+  2. 訂閱者（OAuth 登入）加 assume 變數：多了 `oauth-2025-04-20`（排第 2 個）、`extended-cache-ttl-2025-04-11`、`afk-mode-2026-01-31`、`dangerous-tool-use-2026-09-03` 四個 beta；system 的 `cache_control` 帶 `ttl:"1h"`；`metadata.user_id` 的 `account_uuid` 有值。
+- 判讀：這些差異全部由 client 依 `xi()` 和登入狀態自己決定，proxy 補不回來。所以判定為官方 Claude Code 的請求，只有「已用 OAuth 登入、設了 assume 變數、而且和 gateway home 同帳號」才轉送，其他情況一律 400，不嘗試補形狀。不符合官方 client 判定的請求不在這條路徑，改走 §14 的降轉。
+
+### 13.2 gateway 的做法（`src/claude/relayMessages.ts`、`client.ts` 的 `postRawMessages`）
+
+| 項目 | 做法 |
+|---|---|
+| 判斷官方 client | `x-app: cli`、UA 以 `claude-cli/` 開頭（不分大小寫，同 CPA 的 `(?i)^claude-cli/`）、`metadata.user_id` 是含 `device_id`、`session_id` 的 JSON 字串。取自 CLIProxyAPI 的 strong signals，但不要求 `claude-code-20250219` beta，因為官方的 helper 請求可能不帶。 |
+| first-party | `system[0].text` 以 `x-anthropic-billing-header:` 開頭，而且含 ` cch=`。 |
+| OAuth 登入 | `anthropic-beta` 含 `oauth-2025-04-20`。 |
+| 選帳號 | `metadata.user_id.account_uuid` 對每個 home 的 `oauthAccount.accountUuid`；model alias 不參與。 |
+| 送出前復核帳號 | 每次真正送出前（第一次，以及 401 恢復後的重送），在 token 確定之後重新讀 home 的 `accountUuid`（只讀本機檔案，不發 OAuth preflight）。不等於 client 的 `account_uuid` 就回 400、不送出，不改 metadata 也不重簽。 |
+| body | 原始 bytes。只有 model 帶了指向同一 home 的 alias 時，才替換 top-level `model` 值的那段 bytes；`cch` 計算時 model 會被清空，所以不需要重簽。 |
+| transport | `node:https.request`（測試注入 `http://` base URL 時用 `node:http`），`setHost:false`，headers 以 rawHeaders 陣列送出。轉換路徑（`/v1/responses`、`/v1/chat/completions`）仍用 `fetch`。 |
+| headers | client 的 rawHeaders 原樣送出：名稱大小寫、順序、重複項都不變。`Authorization` 在原位置換成 home 的 token；`host` 換成上游 host；`content-length` 填上實際 body 長度（只有改寫 alias 時才會和 client 不同）；移除 `transfer-encoding`、`keep-alive`、`upgrade`、`x-agent-gateway-api-key`。UA 照轉 client 的值（使用者核准的例外，見 `AGENTS.md`）。 |
+| path 與 query | 用 `req.url` 原文，不重新編碼；URL 解析只用來判斷路由。只接受路徑形式的請求行。 |
+| 上游 | `CLAUDE_BASE_URL` 加上原文 path 與 query；401 時恢復憑證，用同一份 body 重送一次；timeout 沿用 `CLAUDE_REQUEST_TIMEOUT_MS`；client 斷線時中止上游。 |
+| 回應 | status、status 訊息、headers（rawHeaders，含重複的 `Set-Cookie`）、body 原樣轉回：不解壓（`content-encoding`、`content-length` 照轉）、不跟隨 redirect（3xx、`Location`、body 照轉），錯誤也一樣。只有 `connection`、`keep-alive`、`transfer-encoding`、`upgrade`、`proxy-authenticate`、`trailer`、`te` 由 gateway 自己的連線重設。 |
+| gateway key | 從 `x-agent-gateway-api-key` 取；錯誤回 `403 permission_error`。不用 401，因為 native 2.1.302 @246047850 在 HTTP 401 且持有 OAuth token 時會呼叫 `Xb` 做強制 refresh，client 的 OAuth 其實沒問題。debug log 會遮掉這個 header 的整個值。 |
+| count_tokens | `/v1/messages` 通過上面全部檢查後，記錄 `x-claude-code-session-id` → home 的 alias 與 `accountUuid`（記憶體 LRU，上限 `CLAUDE_RELAY_SESSION_MAX_ENTRIES` = 1000，專案自訂）。`POST /v1/messages/count_tokens` 只在 header 判定為官方 client（`x-app: cli` 加 `claude-cli/` UA，不要求 metadata）、帶 OAuth beta、session 查得到紀錄時轉送；body、headers、transport、alias 規則、送出前復核帳號（比對紀錄的 `accountUuid`）都和 `/v1/messages` 相同。不符合就回 400，不送上游。 |
+| 不使用 | `state.ts`、`prepareClaudeRequest`、`toResponsesEvents`。 |
+
+### 13.3 transport 差異
+
+改用 raw `node:https` 之後，`fetch` 帶來的差異都已消除，並以本機 loopback wire-level 測試確認：不會多送 `accept-language`、`sec-fetch-mode`；gzip body 和 `content-encoding`、`content-length` 原樣轉回；302 原樣轉回而不跟隨；query 原文（例如 `?literal=a'b&escaped=%2f`）不被重新編碼。
+
+仍未比對或已知不同的地方：
+
+- `host` 必然是上游的 host；改寫 alias 時 `content-length` 會跟著變。
+- TLS 指紋、HTTP 版本與連線重用行為（Node `https` 對官方 client 的 runtime）沒有比對。
+- `--debug 1`／`3` 的上游紀錄不包含這條路徑（只包住 `fetch`）；`--debug 2`／`3` 的 incoming 紀錄就是上游看到和送回的內容（只差 token）。
+
+### 13.4 驗證狀態
+
+- [v] `test/claude/relayMessages.test.ts`（本機 loopback wire-level，上游是 `http.createServer`）：
+  - 上游收到的 rawHeaders 和 client 送的相同，只差 `Authorization`、`host`、`content-length` 這一段的值，沒有 `accept-language`、`sec-fetch-mode`；body 逐 byte 相同（含非標準格式的 JSON）；query 原文。
+  - SSE、gzip 錯誤 body、302 redirect、`Set-Cookie` 重複項逐 byte 或逐項相同；上游 401 恢復後用同一份 body 重送一次，重試仍 401 就原樣轉回；client 斷線時上游連線關閉。
+  - 用真正的 `createClaudeAuthManager` 加假 home：入口檢查後、第一次送出前換成 B 帳號登入，或第一次送出得到 401 時換成 B 帳號登入，都回 400，沒有任何用 B 帳號 token 送出的推論請求；同帳號正常 refresh 仍會用同一份 body 重送一次。
+  - 四種入口 400 都沒有上游請求（原本「不是官方 Claude Code」的 400 已移除，這類請求改走 §14）；gateway key 錯誤回 403 `permission_error`；debug level 2、3 在 key 正確和錯誤時都只印 `***`。
+  - fixture 照 2.1.302 訂閱者擷取的形狀改寫，所有 id、token 和文字都是假的。
+  - count_tokens：綁定的 session 逐 byte 轉送、只換 token；alias 只能指向綁定的 home；沒綁定、別的 session、沒帶 session header、沒有 OAuth beta、不是官方 client、`/v1/messages` 被拒的 session，都回 400 且沒有上游請求；綁定後 home 換帳號（包括 401 期間換）都回 400；gateway key 沿用 403 規則；LRU 淘汰最久沒用到的 session。
+- [v] 真實上游端對端（使用者手動執行，2026-10-18）：`CLAUDE_CONFIG_DIR=~/.claude-personal ANTHROPIC_BASE_URL=http://127.0.0.1:8765 _CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1 claude -p "say ok"` 回 `ok`。
+- [ ] 未驗證：TLS 指紋、互動模式（entrypoint `cli`）、helper 請求（例如 title、quota）、count_tokens 的實際擷取（目前只有靜態查證，見 §13.1）、其他路徑（目前回 404）。
+
+## 14. 降轉路徑（`POST /v1/messages`，其他 Anthropic client）
+
+不符合 §13.2 官方 client 判斷的 Anthropic Messages 請求走這條路徑（`src/claude/cloakMessages.ts`）。上游看到的是 **gateway 組的請求**：和 §6 的 OpenAI 轉換路徑共用同一個組裝層 `src/claude/assembleRequest.ts`，所以 §3 的 headers、UA、billing 與 `cch`，§6 的 system、cache marker、`metadata.user_id`、betas、thinking、`output_config`，以及 §8.1 的 timeout 都相同。差別只在輸入是 Anthropic 原生格式（`src/claude/nativeMessages.ts`），以及回應不轉成 OpenAI 事件。
+
+### 14.1 依據
+
+- `references/CLIProxyAPI` v8.0.29 `internal/runtime/executor/claude_executor_cloaking.go`：`detectIncomingClaudeCodeRequest` 判定不是 Claude Code 的請求才 cloak；`checkSystemInstructionsWithSigningModeAt` 把 system 換成 billing 加 Claude Code 身分兩塊，caller system 用 `insertClaudeMidConversationSystemBlocks` 移到對話中；`injectFakeUserID` 補上 `metadata.user_id`。
+- 官方形狀的錨點同 §2 到 §8（native 2.1.299）。非串流聚合比照 native 2.1.302 的 SDK accumulator @238304387：`text_delta`、`input_json_delta`、`thinking_delta` 累加，`signature_delta` 直接覆寫，`message_delta` 的 usage 覆寫有值的計數。
+
+### 14.2 和 CPA cloaking 的差異
+
+| 項目 | CPA | gateway |
+|---|---|---|
+| `metadata.user_id` | 產生假的 user id（可快取） | 用 home 真實的 `userID`、`accountUuid` 和 gateway 的 session id，形狀同 §6（`nUe`） |
+| client 的 `cache_control` | system block 保留 client 的 cache_control | 全部拿掉，依官方 `NNr`、`$Nr` 規則重放 |
+| caller system（舊模型） | `prependClaudeSystemReminderBlocksToFirstUserMessage` 放進第一個 user 訊息 | 留在 top-level system，不降成 user reminder（和 §6 相同） |
+| 不支援的欄位 | 大多原樣送出 | 依 §10 的支援邊界回 400；`temperature`、`top_p`、`top_k` 和非 disabled 的 `thinking` 拿掉，記入 `ignored=` |
+| `count_tokens` | 也降轉（`relocateClaudeSystemPromptForCountTokens`） | 回 400，不送上游。native 2.1.302 確實有 count_tokens 呼叫（`DFe`，`source:"count_tokens"`，@243429665），遇到錯誤只記 log、回傳 null。官方 Claude Code 的 count_tokens 走 §13.2 的 session 綁定轉送 |
+
+### 14.3 和 §13 原樣轉送的差異
+
+| 項目 | §13 原樣轉送 | 降轉 |
+|---|---|---|
+| 和官方相同的程度 | body 與 headers 是官方 client 自己產生的 | 只有形狀和 gateway 已對齊官方的那套相同；tools、system 文字、messages 是 client 的 |
+| 帳號 | `metadata.user_id.account_uuid` 對 home | model alias，或 bare `claude-*` 對第一個 Claude home（同 `/v1/responses`） |
+| session | client 的 `x-claude-code-session-id` 與 `metadata.user_id` 原樣 | gateway 用 alias、model 和第一則原始訊息（合併相鄰訊息前、拿掉 `cache_control`）產生，同一段對話不變 |
+| transport | raw `node:https`，headers 照 client | `fetch`，headers 由 gateway 產生（§3.2） |
+| gateway key | `x-agent-gateway-api-key`，錯誤 403 | `x-api-key`、`Authorization: Bearer` 或 `x-agent-gateway-api-key`，錯誤 401 `authentication_error`。驗 key 在讀 body 之前，所以只用 `x-app: cli` 加 `claude-cli/` UA 兩個 header 判斷要套哪一條 |
+| 回應 | 上游 status、headers、bytes 原樣 | 2xx 時 SSE bytes 原樣（headers 是 gateway 自己的 SSE headers），`stream:false` 由 gateway 聚合；錯誤由 gateway 組 Anthropic envelope |
+| thinking 簽章 | client 送回 | client 送回，不使用 `state.ts` |
+
+### 14.4 驗證狀態
+
+- [v] `test/claude/assembleRequest.test.ts`：組裝層單元測試。拆層前後 `test/claude/normalizeRequest.test.ts` 等既有測試未修改即全部通過。
+- [v] `test/claude/nativeMessages.test.ts`：每一條接受或拒絕規則。
+- [v] `test/claude/collectMessage.test.ts`：聚合（文字、工具、thinking 簽章覆寫、usage）與事件順序檢查。
+- [v] `test/claude/cloakMessages.test.ts`（真的 server，上游是 mock fetch）：上游 body 的 system、metadata、cache marker、betas、thinking 和 UA；SSE 原樣轉回與中途斷線；非串流聚合；帶 thinking block 的續接；401；上游錯誤；官方 Claude Code 請求不走降轉。
+- [ ] 未驗證：真實上游（沒有跑 poc）、各家 SDK 實際送出的欄位組合。
