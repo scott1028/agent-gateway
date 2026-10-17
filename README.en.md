@@ -123,6 +123,8 @@ These documents are written in Traditional Chinese.
 | [EasyCLIProxyAPI comparison](docs/CLAUDE_EASYCLIPROXY_COMPARISON.md) | EasyCLIProxyAPI/CLIProxyAPI integration and credential review |
 | [Codex protocol diff](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) | Codex upstream compared with Unsloth and the official Codex CLI, plus similarity |
 | [Codex WebSocket transport](docs/CODEX_WEBSOCKET_TRANSPORT.md) | WebSocket is implemented on the official Codex CLI pass-through path (`/backend-api/codex/*`); the OpenAI-compatible path (`/v1/responses`) still uses HTTP, and option B (a gateway-managed upstream WebSocket) is not implemented. Also covers the evaluation, options and risks |
+| [Similarity gaps](docs/SIMILARITY_GAPS.md) | Why each score in "How close to official?" is below 100, where the gaps come from, and how to close them (estimates do not change the official scores) |
+| [Architecture flows](docs/ARCHITECTURE_FLOWS.md) | Routing and swimlane diagrams for the agent client, agent-gateway, and the official backends |
 | [Mascot and icon](assets/README.md) | Image assets, ComfyUI workflows, and how to remake them |
 
 ## Development

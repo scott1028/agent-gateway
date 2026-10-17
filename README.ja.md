@@ -123,6 +123,8 @@ codex exec -c 'model_providers.agent-gateway={ name = "agent-gateway", base_url 
 | [EasyCLIProxyAPI 比較](docs/CLAUDE_EASYCLIPROXY_COMPARISON.md) | EasyCLIProxyAPI／CLIProxyAPI の接続方法と認証情報の評価 |
 | [Codex 通信差異](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) | Codex 上流を Unsloth・公式 Codex CLI と比べた結果と類似度 |
 | [Codex WebSocket 転送](docs/CODEX_WEBSOCKET_TRANSPORT.md) | 公式 Codex CLI のそのまま転送経路（`/backend-api/codex/*`）では WebSocket を実装済み。OpenAI 互換経路（`/v1/responses`）は今も HTTP で、方式 B（gateway が上流の WebSocket を管理する方式）は未実装。評価、選択肢、リスクも記載 |
+| [類似度の差と改善](docs/SIMILARITY_GAPS.md) | 「公式とどれくらい似ている？」の各スコアが 100 でない理由、差の原因、改善の方向（試算は正式スコアを変えません） |
+| [動作フロー図](docs/ARCHITECTURE_FLOWS.md) | agent client、agent-gateway、公式 BE の三者のルーティング判断と swimlane のフロー図 |
 | [看板娘とアイコン](assets/README.md) | 画像素材、ComfyUI workflow、作り直す手順 |
 
 ## 開発

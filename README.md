@@ -121,6 +121,8 @@ codex exec -c 'model_providers.agent-gateway={ name = "agent-gateway", base_url 
 | [EasyCLIProxyAPI 比對](docs/CLAUDE_EASYCLIPROXY_COMPARISON.md) | EasyCLIProxyAPI／CLIProxyAPI 串接與憑證評估 |
 | [Codex 通訊差異](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) | Codex 上游與 Unsloth、官方 Codex CLI 的對照與相似度 |
 | [Codex WebSocket 傳輸](docs/CODEX_WEBSOCKET_TRANSPORT.md) | 官方 Codex CLI 的轉送路徑（`/backend-api/codex/*`）已實作 WebSocket；OpenAI 相容路徑（`/v1/responses`）仍走 HTTP，方案 B（gateway 自己管理上游 WebSocket）沒有實作。另含評估、選項與風險 |
+| [相似度落差與改進](docs/SIMILARITY_GAPS.md) | 「跟官方有多像？」各分數為什麼不是 100、落差從哪裡來、可以怎麼改進（試算不改正式分數） |
+| [運作流程圖](docs/ARCHITECTURE_FLOWS.md) | agent client、agent-gateway、官方 BE 三方的路由判斷與 swimlane 流程圖 |
 | [看板娘與 icon](assets/README.md) | 圖片素材、ComfyUI workflow 與重做步驟 |
 
 ## 開發
