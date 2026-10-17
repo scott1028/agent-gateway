@@ -32,18 +32,18 @@ Think of the official CLI as the "answer key", always worth 100 points. We treat
 | Upstream | Who | Score (official = 100) | Compared version | Report |
 |---|---|---:|---|---|
 | Claude | Official Claude Code | **100** (baseline) | `references/claude-code` `9b4f0d6` + native 2.1.299 | [Claude similarity](docs/ANTHROPIC_CLAUDE_CODE_PROVIDER_SIMILARITY.md) |
-| Claude | **agent-gateway** | **65** | `d6ce854` | Same as above |
+| Claude | **agent-gateway** | **65** | `dfb0d6c` | Same as above |
 | Claude | CLIProxyAPI | 42.78 | `references/CLIProxyAPI` v8.0.29 (`5fc580b`) | Same as above |
 | Claude | EasyCLIProxyAPI | Not scored separately | Desktop wrapper; its connection core is CLIProxyAPI v8.0.29 | [EasyCLIProxyAPI comparison](docs/CLAUDE_EASYCLIPROXY_COMPARISON.md) |
-| Codex | Official Codex CLI | **100** (baseline) | `cc7ba33` | [Codex protocol diff §4.1.1](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) |
-| Codex | **agent-gateway** | **82.35** | `91c7d18` | Same as above |
-| Codex | Unsloth | 35.29 | `9706a2b` | Same as above |
+| Codex | Official Codex CLI | **100** (baseline) | `references/codex` `0d58012` | [Codex protocol diff §4.1.1](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) |
+| Codex | **agent-gateway** | **82.35** | `dfb0d6c` | Same as above |
+| Codex | Unsloth | 35.29 | `references/unsloth` `1fdcdb5` | Same as above |
 
 - Claude and Codex use different question sets: Claude has 30 questions in 6 groups; Codex only compares 17 endpoint/header rows. Do not compare scores across the two.
 - The score only measures "does it connect like the official tool". It is not a quality score, and it does not guarantee the tool won't be recognized as unofficial.
 - On the Codex path, the User-Agent deliberately carries our own name `agent-gateway`, so that question scores zero.
 - Strictest Codex count: also include the 8 extra headers the official CLI sends only under certain conditions (neither side sends them). Then gateway scores 56 and Unsloth 24.
-- The Codex scores use the versions from when the report was written. The submodules are now at `references/codex` `0d58012` and `references/unsloth` `1fdcdb5`, so the scores need re-checking.
+- Evaluated on 2026-10-17; the official Claude evidence reuses the records from native 2.1.299.
 
 ## Quick start
 

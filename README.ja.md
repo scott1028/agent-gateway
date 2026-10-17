@@ -32,18 +32,18 @@ agent-gateway は、あなたのパソコンで動く小さな中継所です。
 | 上流 | 対象 | スコア（公式 = 100） | 比較したバージョン | 詳細レポート |
 |---|---|---:|---|---|
 | Claude | 公式 Claude Code | **100**（基準） | `references/claude-code` `9b4f0d6`＋native 2.1.299 | [Claude 類似度](docs/ANTHROPIC_CLAUDE_CODE_PROVIDER_SIMILARITY.md) |
-| Claude | **agent-gateway** | **65** | `d6ce854` | 同上 |
+| Claude | **agent-gateway** | **65** | `dfb0d6c` | 同上 |
 | Claude | CLIProxyAPI | 42.78 | `references/CLIProxyAPI` v8.0.29（`5fc580b`） | 同上 |
 | Claude | EasyCLIProxyAPI | 別途採点なし | デスクトップ用の外側の殻で、接続の中核は CLIProxyAPI v8.0.29 | [EasyCLIProxyAPI 比較](docs/CLAUDE_EASYCLIPROXY_COMPARISON.md) |
-| Codex | 公式 Codex CLI | **100**（基準） | `cc7ba33` | [Codex 通信差異 §4.1.1](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) |
-| Codex | **agent-gateway** | **82.35** | `91c7d18` | 同上 |
-| Codex | Unsloth | 35.29 | `9706a2b` | 同上 |
+| Codex | 公式 Codex CLI | **100**（基準） | `references/codex` `0d58012` | [Codex 通信差異 §4.1.1](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) |
+| Codex | **agent-gateway** | **82.35** | `dfb0d6c` | 同上 |
+| Codex | Unsloth | 35.29 | `references/unsloth` `1fdcdb5` | 同上 |
 
 - Claude と Codex では問題が違います。Claude は 30 問・6 グループ、Codex は endpoint／header の 17 項目だけを比べています。両者のスコアは比べられません。
 - スコアは「公式と同じ接続のしかたか」だけを見ています。品質の点数ではなく、非公式ツールだと見抜かれないことも保証しません。
 - Codex 経路の User-Agent にはあえて自分の名前 `agent-gateway` を入れているため、その問題は 0 点です。
 - Codex の最も厳しい数え方：公式が条件付きで送る 8 つの header も含めると（どちらも送っていません）、gateway は 56、Unsloth は 24 です。
-- Codex のスコアはレポート作成時のバージョンにもとづきます。現在の submodule は `references/codex` `0d58012`、`references/unsloth` `1fdcdb5` に更新されているため、見直しが必要です。
+- 評価日は 2026-10-17 です。Claude の公式側の証拠は native 2.1.299 の記録をそのまま使っています。
 
 ## クイックスタート
 

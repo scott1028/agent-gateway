@@ -32,18 +32,18 @@ agent-gateway 是一個跑在你電腦上的小轉接站。它讓其他 AI 工�
 | 上游 | 對象 | 分數（官方 = 100） | 比較版本 | 詳細報告 |
 |---|---|---:|---|---|
 | Claude | 官方 Claude Code | **100**（基準） | `references/claude-code` `9b4f0d6`＋native 2.1.299 | [Claude 相似度](docs/ANTHROPIC_CLAUDE_CODE_PROVIDER_SIMILARITY.md) |
-| Claude | **agent-gateway** | **65** | `d6ce854` | 同上 |
+| Claude | **agent-gateway** | **65** | `dfb0d6c` | 同上 |
 | Claude | CLIProxyAPI | 42.78 | `references/CLIProxyAPI` v8.0.29（`5fc580b`） | 同上 |
 | Claude | EasyCLIProxyAPI | 不另計分 | 桌面外殼，連線核心就是 CLIProxyAPI v8.0.29 | [EasyCLIProxyAPI 比對](docs/CLAUDE_EASYCLIPROXY_COMPARISON.md) |
-| Codex | 官方 Codex CLI | **100**（基準） | `cc7ba33` | [Codex 通訊差異 §4.1.1](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) |
-| Codex | **agent-gateway** | **82.35** | `91c7d18` | 同上 |
-| Codex | Unsloth | 35.29 | `9706a2b` | 同上 |
+| Codex | 官方 Codex CLI | **100**（基準） | `references/codex` `0d58012` | [Codex 通訊差異 §4.1.1](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) |
+| Codex | **agent-gateway** | **82.35** | `dfb0d6c` | 同上 |
+| Codex | Unsloth | 35.29 | `references/unsloth` `1fdcdb5` | 同上 |
 
 - Claude 和 Codex 的題目不一樣：Claude 有 30 題、分 6 組；Codex 只比 17 個 endpoint／header。兩邊的分數不能互相比。
 - 分數只看「連線方式像不像官方」。它不是品質分數，也不保證不會被認出是非官方工具。
 - Codex 路徑的 User-Agent 刻意寫自己的名字 `agent-gateway`，所以那一題不得分。
 - Codex 的最嚴格算法：把官方另外 8 個條件式 header 也算進去（兩邊都沒送），gateway 為 56、Unsloth 為 24。
-- Codex 分數用的是報告當時的版本。目前 submodule 已更新為 `references/codex` `0d58012`、`references/unsloth` `1fdcdb5`，需要重新核對。
+- 評估日期 2026-10-17；Claude 官方證據沿用 native 2.1.299 的記錄。
 
 ## 快速開始
 

@@ -29,6 +29,8 @@
 
 > 更名說明：本專案已更名，UA 尾碼同步改為 `agent-gateway`。本報告全文改用現名，文中 UA 字串顯示的是更名後現況；上表固定 commit 為更名前快照，當時的專案名稱與 UA 尾碼皆非現行字串，勿將新字串歸因於該 commit。
 
+> 重評說明：§4.1.1 已改對 pinned references 重評（2026-10-17），固定版本見該節；上表與 §4.1 主表的值仍是舊快照。
+
 範圍包含 proxy 的兩個 inference endpoint、model catalog、refresh，以及 Unsloth Studio 的 Codex transport／實際呼叫端。§4.1 另比對官方 Codex CLI 的 endpoint／headers，並註明 HTTP／WebSocket 差異；不是 frontend review，也不是完整官方 Codex／WebSocket 審查。
 
 - **靜態確認**：production code 可直接確定送出／省略的欄位或控制流程。
@@ -121,32 +123,48 @@ Codex backend |                          | 生成內容／工具呼叫   | 讀�
 
 ### 4.1.1 官方基準相似度分數（依 §4.1 推算）
 
-2026-10-17 補充：以 §4.1 主表 17 列為題目、官方 Codex CLI（§2 固定版本 `cc7ba33`）為 100，套用 [Claude provider 相似度報告](ANTHROPIC_CLAUDE_CODE_PROVIDER_SIMILARITY.md) §2 的標記規則：`1` 符合官方、`0` 已知不同、`?` 證據不足；不給半分，每列只評該列描述的形狀。本節只依本報告既有內容判定，未重新開啟 `references/`。
+2026-10-17 重評：以 §4.1 主表 17 列為題目（題目不變）、官方 Codex CLI 為 100，套用 [Claude provider 相似度報告](ANTHROPIC_CLAUDE_CODE_PROVIDER_SIMILARITY.md) §2 的標記規則：`1` 符合官方、`0` 已知不同、`?` 證據不足；不給半分，每列只評該列描述的形狀。本節已改對 pinned references，重新開啟原始碼逐列判定。
 
-| # | 項目 | 官方規則（基準） | gateway | Unsloth | 判定依據 |
-|---:|---|---|:-:|:-:|---|
-| 1 | Responses URL | HTTP `…/codex/responses` | 1 | 1 | HTTP 目的地相同；WebSocket 不在本列範圍 |
-| 2 | Models URL | `…/codex/models?client_version=…` | 1 | 1 | 相同 endpoint／query |
-| 3 | Authorization | 登入 access token，Bearer | 1 | 1 | 相同 |
-| 4 | `chatgpt-account-id` | 已保存的 account ID，有值才送 | 1 | 0 | Unsloth 改從 access_token 解讀並要求非空 |
-| 5 | `originator` | 互動 `codex-tui`、exec `codex_exec`；底層 fallback `codex_cli_rs` | 0 | 0 | gateway 固定 fallback 值，不是官方入口實際送出的值 |
-| 6 | User-Agent | `<originator>/<build-version> (<OS>; <arch>) <terminal-token>` | 0 | 0 | gateway 結尾刻意寫 `agent-gateway`，OS 字串來源也不同；Unsloth 為固定字串 |
-| 7 | `version` header | 送 build version | 1 | 0 | 只評有送版本 header；gateway 值固定 `0.162.1` |
-| 8 | models `client_version` | `major.minor.patch` | 1 | 1 | 只評格式；兩者都是固定值，不隨 build 變動 |
-| 9 | `OpenAI-Beta`（HTTP） | 不送 | 1 | 0 | Unsloth 送 `responses=experimental` |
-| 10 | Responses Accept／Content-Type | `text/event-stream`／`application/json` | 1 | 1 | 相同 |
-| 11 | Models Accept | 不明設 | 1 | 0 | Unsloth 明設 `application/json` |
-| 12 | `session-id` | 送同一對話穩定的 session 識別 | 1 | 1 | 只評有送且穩定；演算法差異見 §4.2 |
-| 13 | `thread-id` | 送 thread ID | 1 | 0 | gateway 與 session-id 同值；Unsloth 不送 |
-| 14 | `x-client-request-id` | thread ID，跨輪重用 | 1 | 0 | Unsloth 每次呼叫重新產生 |
-| 15 | Lite header | Lite 模型送 `x-openai-internal-codex-responses-lite: true` | 1 | 0 | Unsloth 沒有 Lite 分支 |
-| 16 | `x-codex-turn-state` | 自行擷取上游 state，同一 turn 帶回 | 0 | 0 | gateway 只轉發 caller 送來的值 |
-| 17 | `x-openai-fedramp` | id_token FedRAMP claim 為 true 時送 | 1 | 0 | Unsloth 未設 |
-| | **合計** | 官方 = 100 | **14／17 = 82.35** | **6／17 = 35.29** | 17 列皆可判定，沒有 `?` |
+| 基線 | 本節固定版本 | 前版 |
+|---|---|---|
+| 官方 Codex CLI | `references/codex` `0d58012`（比前版多 101 個 commit） | `cc7ba33` |
+| agent-gateway | `dfb0d6c` | `91c7d18` |
+| Unsloth | `references/unsloth` `1fdcdb5` | `9706a2b`（不在 `references/unsloth` 的歷史中，無法重新開啟） |
 
+證據路徑：官方相對於 `references/codex/codex-rs/`；gateway 為 repo 內的 `src/`；Unsloth 的 `U` 代表 `studio/backend/core/inference/openai_codex_client.py`，`UA` 代表同目錄的 `openai_codex_auth.py`。
+
+| # | 項目 | 官方規則（基準；`0d58012` 證據） | gateway（`dfb0d6c`） | Unsloth（`1fdcdb5`） | gateway | Unsloth |
+|---:|---|---|---|---|:-:|:-:|
+| 1 | Responses URL | HTTP `…/codex/responses`：`model-provider-info/src/lib.rs:80`、`codex-api/src/endpoint/responses.rs:67,106` | `src/upstream/codexClient.ts:59` | `U:204` | 1 | 1 |
+| 2 | Models URL | `…/models?client_version=`：`codex-api/src/endpoint/models.rs:37-42` | `codexClient.ts:80` | `U:413` | 1 | 1 |
+| 3 | Authorization | Bearer：`model-provider/src/bearer_auth_provider.rs:33-37`（ChatGPT auth 走這裡，見 `model-provider/src/auth.rs:316-323`） | `src/upstream/headers.ts:20` | `U:886` | 1 | 1 |
+| 4 | `chatgpt-account-id` | 已保存的 account id，有值才送：`bearer_auth_provider.rs:38-42` | `headers.ts:25` | 從 access_token 解出並要求非空：`UA:193-208,229` | 1 | 0 |
+| 5 | `originator` | TUI `codex-tui`（`tui/src/lib.rs:512`）、exec `codex_exec`（`exec/src/lib.rs:263`），fallback `codex_cli_rs`（`login/src/auth/default_client.rs:42`） | 固定 `codex_cli_rs`：`src/constants.ts:4` | `unsloth_studio`：`UA:42` | 0 | 0 |
+| 6 | User-Agent | UA 格式：`default_client.rs:154-171` | 結尾 `agent-gateway`：`headers.ts:8` | 固定 `unsloth-studio/1`：`UA:46` | 0 | 0 |
+| 7 | `version` header | 送 `version` header（`CARGO_PKG_VERSION`）：`model-provider-info/src/lib.rs:539-541` | `headers.ts:23`（`0.162.1`） | 沒送 | 1 | 0 |
+| 8 | models `client_version` | `client_version` 為 major.minor.patch：`models-manager/src/lib.rs:19-25` | `0.162.1` | `0.162.1`（`UA:49`；`9706a2b` 時是 `0.156.0`） | 1 | 1 |
+| 9 | `OpenAI-Beta`（HTTP） | HTTP 不送 `OpenAI-Beta`：`core/src/client.rs:2466-2484`；只有 WebSocket 握手才送，見 `client.rs:1409-1412` | 沒送 | `responses=experimental`：`U:890` | 1 | 0 |
+| 10 | Responses Accept／Content-Type | Accept 用 event-stream：`responses.rs:144-145` | `codexClient.ts:70` | `U:891` | 1 | 1 |
+| 11 | Models Accept | Models 不明設 Accept：`models.rs` | 不明設 | `application/json`：`U:405` | 1 | 0 |
+| 12 | `session-id` | `session-id`：`codex-api/src/requests/headers.rs:7-9` | `headers.ts:28` | `U:893` | 1 | 1 |
+| 13 | `thread-id` | `thread-id`：`requests/headers.rs:10-12` | `headers.ts:29` | 沒送 | 1 | 0 |
+| 14 | `x-client-request-id` | `x-client-request-id` 用 thread id：`responses.rs:88` | `headers.ts:30` | 每次呼叫重新雜湊：`U:884,894` | 1 | 0 |
+| 15 | Lite header | Lite header：`client.rs:2486-2490` | `headers.ts:32` | 沒有 | 1 | 0 |
+| 16 | `x-codex-turn-state` | 自己擷取上游的 turn-state 再帶回：`client.rs:2477-2482`、`codex-api/src/sse/responses.rs:33` | 只轉發 caller 送來的值：`headers.ts:33` | 沒有 | 0 | 0 |
+| 17 | `x-openai-fedramp` | FedRAMP：`bearer_auth_provider.rs:43-45` | `headers.ts:26` | 沒有 | 1 | 0 |
+| | **合計** | 官方 = 100 | | | **14／17 = 82.35** | **6／17 = 35.29** |
+
+- 合計與上一版相同；17 列皆可判定，沒有 `?`。每列的判定範圍也與上一版相同：第 7 列只評有送版本 header；第 8 列只評格式，兩者都是固定值，不隨 build 變動；第 12 列只評有送且穩定，演算法差異見 §4.2；第 1 列見下方註記 1。
 - 本分數只涵蓋 §4.1 的 endpoint／header 主表，不含 §4.2 之後的 session 演算法、payload、SSE 與 retry；不能與 Claude 報告的 30 項六組分數直接比較。
-- 官方另有 8 列條件式 headers（上方「官方額外 headers」表），gateway 與 Unsloth 都沒送。若把它們全記為 `0`，最嚴格算法為 gateway 14／25 = 56、Unsloth 6／25 = 24。其中 subagent、memgen 等分支不會出現在一般路徑，因此主分數未計入。
-- 固定版本沿用 §2：gateway `91c7d18`、Unsloth `9706a2b`、官方 Codex `cc7ba33`。目前 submodule 為 `references/codex` `0d58012`、`references/unsloth` `1fdcdb5`；更新 submodule 或修改上游 header 後，需重新逐列判定。
+- 官方另有 8 列條件式 headers（上方「官方額外 headers」表），gateway 與 Unsloth 都沒送。若把它們全記為 `0`，最嚴格算法為 gateway 14／25 = 56、Unsloth 6／25 = 24。其中 subagent、memgen 等分支不會出現在一般路徑，因此主分數未計入。在 `0d58012` 沒有找到新的 HTTP header：`x-client-policy` 只出現在 `login/src/oauth/client_tests.rs`；`x-openai-actor-authorization` 只在 `!requires_openai_auth` 時才用，不在 ChatGPT OAuth 路徑上，所以最嚴格算法維持不變。
+- 固定版本見本節開頭的表；更新 submodule 或修改上游 header 後，需重新逐列判定。
+
+**2026-10-17 重評註記：**
+
+1. **官方預設走 WebSocket**：ChatGPT backend 預設 `supports_websockets: true`（`model-provider-info/src/lib.rs:561`）。增量傳送是有條件的：只有請求屬性不變（`core/src/client.rs:410-460`），而且新 input 延伸自「上一輪 input + output」（`client.rs:1500-1531`），兩者同時成立時才只送增量 input 並帶 `previous_response_id`；首次請求或條件不成立時，同一條連線仍會送完整 input、不帶 id（`client.rs:2117,2137-2157`）。HTTP 是退路：426 或重試用完時才改走（`client.rs:1620-1625`、`core/src/responses_retry.rs:120-135`）。gateway 只實作 HTTP 這條路，第 1 列只評 HTTP 目的地。這項不計分，由使用者決定要不要另外研究；研究見 `.tmp/codex-websocket-research.md`（不進 repo）。
+2. **`previous_response_id` 是 gateway 本機的功能**：上游仍是 `store:false` 加完整 input，不帶這個 id（`test/responses/previousResponse.test.ts:80-96`）。cache key、session headers 和 input prefix 跨輪穩定（`previousResponse.test.ts:168-192`）。
+3. **401 重送前的 auth owner guard（只用在 `previous_response_id` 續接）**：gateway 只在用 `previous_response_id` 續接已保存的 response 時檢查登入身分（`src/responses/responseStore.ts:74-77`）：每次實際送出前（包含 401 恢復後的重送）確認身分沒換，換了就不重送 history。一般的完整 history 請求不檢查，401 恢復後換成新身分時，會照常用新身分重送；這和官方前景 HTTP 的行為相同，`expected_auth_owner` 傳 `None`（`core/src/client.rs:2402-2404`）。官方的對應做法是：HTTP 的 expected-owner guard（`client.rs:1787-1791`）只用在背景 compaction（`core/src/compact_remote_v2.rs:308`）；WebSocket 在 auth owner 改變時，丟棄增量狀態和 turn-state（`client.rs:1688-1695`；模組說明 `:14-15`）。gateway 的檢查是參考這些做法的類比，屬於 §6 的範圍，不是 header 列。
+4. **§4.1 主表與 §2 基準表的值仍是舊快照**：例如 Unsloth 的 `0.156.0`、gateway `91c7d18`。這次只更新 §4.1.1，並在 §2 註明 §4.1.1 已改對 pinned references 重評；沒有重寫整份文件。
 
 ### 4.2 Session/cache 演算法
 

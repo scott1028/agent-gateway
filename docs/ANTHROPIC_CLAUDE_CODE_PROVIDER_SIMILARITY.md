@@ -1,6 +1,6 @@
 # Anthropic Provider 對官方 Claude Code 的行為相似度
 
-評估日期：2026-10-15。
+評估日期：2026-10-17（首次評估 2026-10-15；本次依 pinned references 重評，分數不變）。
 
 **本報告以官方 Claude Code 為唯一基準，分別評估其他實作與官方的相似程度：agent-gateway 為 65／100，CLIProxyAPI 為 42.78／100。** 官方基準由 `references/claude-code` 的固定版本識別，未公開的 CLI transport 邏輯以固定官方 native release 補充；分數使用 30 項中的 25 項共同可確認證據。
 
@@ -23,10 +23,10 @@
 | 對象 | 本次固定參考點 |
 |---|---|
 | 官方公開 repository（基準來源入口） | `references/claude-code`，`9b4f0d6ef8ceaf62f6b46babb9a4d84bec541a2e` |
-| agent-gateway（受評對象） | `d6ce8545def8e2d9646295b52774e28488a6d86d`；本次只修改報告 |
-| 使用者指定的修正 | `6e07ec63c759a3c6e8e3b408e901e874906a43ab`；與上述 HEAD 的 `src/claude/` 沒有差異 |
+| agent-gateway（受評對象） | `dfb0d6ca8243e9d1ff5d5e4643ffe135f7d41fc3`（branch `feat/previous-response-id`；前版 `d6ce854`）；本次只修改報告 |
+| 使用者指定的修正 | `6e07ec63c759a3c6e8e3b408e901e874906a43ab`；與前版 `d6ce854` 的 `src/claude/` 沒有差異，與 `dfb0d6c` 的差異見本節重評註記 |
 | CLIProxyAPI，以下簡稱 CPA（受評對象） | `references/CLIProxyAPI`，`5fc580b1d72d87a7bcfe5cfb6f479c1aea5625b3`，實際 tag `v8.0.29` |
-| 官方執行邏輯補充證據 | 本機 Claude Code native `2.1.299`，`/home/scott/.local/share/claude/versions/2.1.299` |
+| 官方執行邏輯補充證據 | 本機 Claude Code native `2.1.299`，`/home/scott/.local/share/claude/versions/2.1.299`（執行檔已不在本機，見本節重評註記） |
 | native SHA256 | `2d894a4b1bfaaa9aab72aeff7803e3c73bc2510f279a171f6b8f59f72d17d077` |
 | native 內嵌版本資訊 | `GIT_SHA c416f56ec7eca27e49747c35af51d5c92c856ba1`；`BUILD_TIME 2026-10-13T21:37:33Z` |
 
@@ -38,6 +38,16 @@
 **本次分數包含第二層證據，不能標示成「僅由 `references/claude-code` 原始碼得出」。** 若限定只能使用該公開資料夾、不接受官方發行物補充，目前不足以計算這份 provider 層級總分。plugin 的 HTTP 範例不能代替主 CLI；CPA 的註解或測試向量也不能代替官方證據。native byte offset 只適用於上表 SHA256。
 
 EasyCLIProxyAPI 是先前調查的入口，其 `core-version.txt` 指向 CPA `8.0.29`；本次直接比較真正執行 Anthropic 請求的 CPA 核心，不另給桌面包裝層分數。
+
+### 2026-10-17 重評註記
+
+gateway 由 `d6ce854` 改評 `dfb0d6c`。`git diff d6ce854 dfb0d6c -- src/claude` 只有兩處：`src/claude/normalizeRequest.ts` 移除「`previous_response_id` 回 400」的 guard，改由 `handleResponses` 先展開；`src/claude/index.ts` 多 export `readClaudeAccountMetadata`。`src/responses/handleResponses.ts` 在 Claude 路徑另外讀本機 `.claude.json`，並展開或保存 response。逐項對照 A1–F5，這些變更都沒有改到任何一項描述的 wire 行為或狀態方案：上游 `messages` 與帶完整 history 的請求相同（`test/claude/endToEnd.test.ts:472-496`），cache prefix 與 session id 跨輪穩定（`endToEnd.test.ts:498-541`）。因此 30 項標記、A–F 分組分數與總分都不變。
+
+1. **`previous_response_id` 是 gateway 本機的功能**：官方 Messages API 沒有伺服器端狀態，Claude Code 每輪都重送完整 `messages`。gateway 把 response 展開後再送出，所以上游 wire 與完整 history 請求相同。這項不在 30 項範圍內，也不計分。
+2. **新增的 response store 與 F4 無關**：它是記憶體 LRU（1000 筆），存放 OpenAI 相容層的 response，不是 F4 的簽章狀態儲存。F4 仍是 `state.ts` 的檔案方案，判定不變。
+3. **native 執行檔狀態**：本機 `~/.local/share/claude/versions/` 已自動更新，只剩 2.1.300、2.1.301、2.1.302，2.1.299 執行檔已刪除。本次沒有重新開啟 native 證據，沿用 2026-10-15 依上表 SHA256 記錄的 offset，也沒有重新驗證官方規則。下次換基準時，要用新版 native 重找每個 offset。
+
+cache 實際命中率尚未驗證，限制記在第 6 節。
 
 ## 2. 計分演算法
 
@@ -193,6 +203,8 @@ D 組的 gateway 100% 只代表三個已共同確認的項目，**不代表 CCH 
 本次是靜態比較，沒有執行官方 CLI 推論、讀取私人對話或新增上游呼叫。先前完整 OpenCode 請求修正前 HTTP 400、修正後文字與工具續接成功，屬於既有實測紀錄，見 [Anthropic 串接重新比對](CLAUDE_EASYCLIPROXY_COMPARISON.md)。該紀錄不能證明全部 30 項或所有模型均可用。
 
 官方基準本身尚未確認 D4、D5、F2，因此 gateway 與 CPA 在這三項都記 `?`。CPA 另有 F3、F5 未確認：gateway 共 3 項未知，CPA 共 5 項未知。取得同版本完整 CCH／wire 證據，以及完整錯誤恢復與 transport 路徑後，才能補齊。
+
+cache 實際命中率也未驗證：billing header 裡的 `cch` 每次依最終 body 計算，是確定性的 checksum（`src/claude/attribution.ts:82-96`）。body 相同時值相同（例如 401 重送）；跨輪內容改變時 `cch` 可能不同，但計算前會先排除 `max_tokens`、`fallbacks`、`fallback_credit_token`，並把字串型的 `model` 換成 `""`（`attribution.ts:68-74`），所以 body 不同不保證 checksum 不同。帶 `cch` 是官方行為：CPA `internal/runtime/executor/claude_signing.go:180-201` 引用的 native gate，firstParty 打 `api.anthropic.com` 時會帶 `cch`。上游計算 cache 時會不會忽略它，mock 測試證明不了。
 
 重算時：
 

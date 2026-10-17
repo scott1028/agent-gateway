@@ -508,11 +508,14 @@ describe('previous_response_id', () => {
 
     expect(Array.isArray(firstRequest.tools)).toBe(true);
     expect(secondRequest.tools).toEqual(firstRequest.tools);
-    // The billing block's cch differs per request by official design: src/claude/attribution.ts:82-96
-    // signs every final body, and references/CLIProxyAPI @5fc580b1
-    // internal/runtime/executor/claude_signing.go:180-201 quotes the native gate that always sends
-    // cch for firstParty on api.anthropic.com. Mocks cannot show whether upstream ignores cch when
-    // matching the cache; only a manual real run (turn 2 usage cached_tokens > 0) confirms it. So
+    // The billing block's cch is a deterministic checksum of the final body
+    // (src/claude/attribution.ts:82-96): the same body gives the same value (e.g. a 401 resend).
+    // Turn 2's cch may differ, but the checksum skips max_tokens and the fallback fields and blanks
+    // a string model, so a different body does not guarantee a different cch. Sending cch is official:
+    // references/CLIProxyAPI @5fc580b1 internal/runtime/executor/claude_signing.go:180-201 quotes
+    // the native gate that always sends cch for firstParty on api.anthropic.com. Mocks cannot show
+    // whether upstream ignores cch when matching the cache; only a manual real run (turn 2 usage
+    // cached_tokens > 0) confirms it. So
     // only the single trailing cch of the billing block in system[0] is masked; everything else,
     // the cc_version fingerprint and the other system blocks included, is compared as is.
     const maskBillingCch = (system: unknown): Json[] => {

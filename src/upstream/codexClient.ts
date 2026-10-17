@@ -10,8 +10,10 @@ export type PostResponsesOptions = {
   turnState?: string;
   signal?: AbortSignal;
   // Runs right before every fetch (first send and the 401 retry) with that attempt's credentials;
-  // throwing stops the send. Mirrors references/codex/codex-rs/core/src/client.rs:1787 auth owner
-  // guard: when the auth owner changed, the turn is aborted instead of resent.
+  // throwing stops the send. The gateway uses it for previous_response_id continuations, by
+  // analogy with the official rule that a changed auth owner never reuses continuation state:
+  // references/codex/codex-rs/core/src/client.rs:1688-1695 (WebSocket) and :1787-1791 (the
+  // background compaction guard).
   onCredentials?: (credentials: Credentials) => void;
 };
 
