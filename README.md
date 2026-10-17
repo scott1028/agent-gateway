@@ -115,6 +115,7 @@ codex exec -c 'model_providers.agent-gateway={ name = "agent-gateway", base_url 
 | [Claude 通訊差異](docs/CLAUDE_UPSTREAM_PROTOCOL_DIFF.md) | Claude 上游的 header、OAuth、SSE 與偏離項目 |
 | [EasyCLIProxyAPI 比對](docs/CLAUDE_EASYCLIPROXY_COMPARISON.md) | EasyCLIProxyAPI／CLIProxyAPI 串接與憑證評估 |
 | [Codex 通訊差異](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) | Codex 上游與 Unsloth、官方 Codex CLI 的對照與相似度 |
+| [Codex WebSocket 傳輸](docs/CODEX_WEBSOCKET_TRANSPORT.md) | 官方預設的 WebSocket 增量傳送：gateway 尚未實作，以及可行選項與風險 |
 | [看板娘與 icon](assets/README.md) | 圖片素材、ComfyUI workflow 與重做步驟 |
 
 ## 開發

@@ -309,6 +309,7 @@ codex exec -c 'model_providers.agent-gateway={ name = "agent-gateway", base_url 
   - 必須用同一個帳號的 model 續接；換帳號（例如 `codex1` 的 response id 配 `claude1/...`）回 400。同一個 home 不重啟就換登入（Codex 看憑證的 `account_id`，Claude 看 `accountUuid`）之後，舊的 id 也回 400，不會把舊帳號的對話送給新帳號。
   - 回應物件裡的 `previous_response_id` 欄位維持上游原值（Codex 為 `null`，Claude 沒有這個欄位）。
   - 不提供 `GET`／`DELETE /v1/responses/{id}`。
+  - 上游仍然每輪全量重送。官方 Codex 預設用 WebSocket 增量傳送，gateway 尚未實作，見 [Codex WebSocket 傳輸](CODEX_WEBSOCKET_TRANSPORT.md)；Claude 沒有對應機制。
 - 對 Responses Lite 模型（目前的 `gpt-6-*`、`gpt-5.6-*`），比照 Codex 做以下處理：
   - tools 包進 `additional_tools` 的 `functions` namespace。
   - `parallel_tool_calls:false`。

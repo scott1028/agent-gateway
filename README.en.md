@@ -117,6 +117,7 @@ These documents are written in Traditional Chinese.
 | [Claude protocol diff](docs/CLAUDE_UPSTREAM_PROTOCOL_DIFF.md) | Claude upstream headers, OAuth, SSE, and deviations |
 | [EasyCLIProxyAPI comparison](docs/CLAUDE_EASYCLIPROXY_COMPARISON.md) | EasyCLIProxyAPI/CLIProxyAPI integration and credential review |
 | [Codex protocol diff](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) | Codex upstream compared with Unsloth and the official Codex CLI, plus similarity |
+| [Codex WebSocket transport](docs/CODEX_WEBSOCKET_TRANSPORT.md) | The official default WebSocket incremental transport: not implemented in the gateway yet, with options and risks |
 | [Mascot and icon](assets/README.md) | Image assets, ComfyUI workflows, and how to remake them |
 
 ## Development

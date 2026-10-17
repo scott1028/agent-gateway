@@ -117,6 +117,7 @@ codex exec -c 'model_providers.agent-gateway={ name = "agent-gateway", base_url 
 | [Claude 通信差異](docs/CLAUDE_UPSTREAM_PROTOCOL_DIFF.md) | Claude 上流の header、OAuth、SSE と、公式との違い |
 | [EasyCLIProxyAPI 比較](docs/CLAUDE_EASYCLIPROXY_COMPARISON.md) | EasyCLIProxyAPI／CLIProxyAPI の接続方法と認証情報の評価 |
 | [Codex 通信差異](docs/CODEX_UNSLOTH_PROTOCOL_DIFF.md) | Codex 上流を Unsloth・公式 Codex CLI と比べた結果と類似度 |
+| [Codex WebSocket 転送](docs/CODEX_WEBSOCKET_TRANSPORT.md) | 公式が標準で使う WebSocket の差分送信：gateway では未実装。選択肢とリスク |
 | [看板娘とアイコン](assets/README.md) | 画像素材、ComfyUI workflow、作り直す手順 |
 
 ## 開発
