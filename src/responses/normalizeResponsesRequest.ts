@@ -82,15 +82,7 @@ export const normalizeResponsesRequest = (body: Json, model?: CodexModel): Norma
   if (typeof body.model !== 'string' || body.model === '') {
     throw createProxyError({ status: 400, message: '`model` is required' });
   }
-  if (body.previous_response_id !== undefined && body.previous_response_id !== null) {
-    throw createProxyError({
-      status: 400,
-      message: '`previous_response_id` is not supported: the backend runs with store=false, so send the full input',
-    });
-  }
-  const strippedKeys = Object.keys(body).filter(
-    (key) => !ALLOWED_FIELDS.includes(key) && !FORCED_FIELDS.includes(key) && key !== 'previous_response_id',
-  );
+  const strippedKeys = Object.keys(body).filter((key) => !ALLOWED_FIELDS.includes(key) && !FORCED_FIELDS.includes(key));
   const allowed = Object.fromEntries(Object.entries(body).filter(([key]) => ALLOWED_FIELDS.includes(key)));
   const input = toInputItems(body.input ?? []);
   const include = Array.isArray(body.include) ? (body.include as string[]) : [];

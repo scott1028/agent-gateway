@@ -9,6 +9,10 @@ export type PostResponsesOptions = {
   isResponsesLite: boolean;
   turnState?: string;
   signal?: AbortSignal;
+  // Runs right before every fetch (first send and the 401 retry) with that attempt's credentials;
+  // throwing stops the send. Mirrors references/codex/codex-rs/core/src/client.rs:1787 auth owner
+  // guard: when the auth owner changed, the turn is aborted instead of resent.
+  onCredentials?: (credentials: Credentials) => void;
 };
 
 export type CodexClient = {
@@ -50,8 +54,9 @@ export const createCodexClient = ({ auth, config, authPath, fetchFn = fetch, now
   };
 
   const postResponses = (request: ResponsesRequest, options: PostResponsesOptions): Promise<Response> =>
-    sendWithAuth((credentials) =>
-      fetchFn(`${config.baseUrl}/responses`, {
+    sendWithAuth((credentials) => {
+      options.onCredentials?.(credentials);
+      return fetchFn(`${config.baseUrl}/responses`, {
         method: 'POST',
         headers: {
           ...buildUpstreamHeaders({
@@ -67,8 +72,8 @@ export const createCodexClient = ({ auth, config, authPath, fetchFn = fetch, now
         },
         body: JSON.stringify(request),
         signal: options.signal,
-      }),
-    );
+      });
+    });
 
   const getModels = async (): Promise<CodexModel[]> => {
     const response = await sendWithAuth((credentials) =>

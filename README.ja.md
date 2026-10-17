@@ -101,7 +101,7 @@ codex exec -c 'model_providers.agent-gateway={ name = "agent-gateway", base_url 
 ## 注意すること
 
 - 1 つの home は 1 つの gateway だけで使い、同時に `codex` も動かさないでください。refresh token は 1 回しか使えないため、同時に更新すると互いを無効にしてしまいます。
-- `previous_response_id` には対応していません。毎回会話全体を送ってください。
+- `previous_response_id` は gateway 内で処理します。完了した response をメモリに保存し（最大 1000 件、再起動で消えます）、id を会話全体の input に展開してから上流に送るため、上流へのリクエストは会話全体を送った場合と完全に同じです。`store:false` の response は保存しません。`instructions` と `tools` は引き継がないので毎回送ってください。続けるときは同じアカウントの model を使ってください。同じ home で別のアカウントにログインし直した後は、古い id では続けられません。
 - 利用枠を使い切ると 429、Codex を含まないプランでは 403、token を回復できないときは 401 を返し、再ログインのコマンドを表示します。
 - そのほかの制限や変換ルールは[利用ガイド](docs/GUIDE.md)を見てください。
 

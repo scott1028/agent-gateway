@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatSseData, parseSseStream, splitSseEvents } from '../../src/utils/sse.js';
+import { formatSseData, parseSseStream, readSseChunks, splitSseEvents } from '../../src/utils/sse.js';
 import { readFixture, toByteChunks } from '../helpers.js';
 
 describe('splitSseEvents', () => {
@@ -29,6 +29,38 @@ describe('parseSseStream', () => {
     const text = 'data: [DONE]\n\ndata: {"type":"response.completed"}';
     for await (const event of parseSseStream(toByteChunks(text, 5))) types.push(event.type);
     expect(types).toEqual(['response.completed']);
+  });
+});
+
+describe('readSseChunks', () => {
+  it('passes every chunk through byte for byte and attaches each event to the chunk that ends it', async () => {
+    const text = readFixture('text-nonlite.sse');
+    const chunks: Uint8Array[] = [];
+    const completedAt: number[] = [];
+    const types: string[] = [];
+    for await (const { chunk, events } of readSseChunks(toByteChunks(text))) {
+      chunks.push(chunk);
+      for (const event of events) {
+        types.push(event.type);
+        if (event.type === 'response.completed') completedAt.push(chunks.length - 1);
+      }
+    }
+    expect(Buffer.concat(chunks).toString('utf8')).toBe(text);
+    expect(chunks.every((chunk) => chunk.length > 0)).toBe(true);
+    const parsed: string[] = [];
+    for await (const event of parseSseStream(toByteChunks(text))) parsed.push(event.type);
+    expect(types).toEqual(parsed);
+    // The terminal event is only complete once its trailing blank line arrives in the last chunk.
+    expect(completedAt).toEqual([chunks.length - 1]);
+  });
+
+  it('flushes a final event without trailing blank line under an empty chunk', async () => {
+    const results: Array<{ size: number; types: string[] }> = [];
+    for await (const { chunk, events } of readSseChunks(toByteChunks('data: {"type":"a"}\n\ndata: {"type":"b"}', 7))) {
+      results.push({ size: chunk.length, types: events.map((event) => event.type) });
+    }
+    expect(results.flatMap(({ types }) => types)).toEqual(['a', 'b']);
+    expect(results.at(-1)).toEqual({ size: 0, types: ['b'] });
   });
 });
 

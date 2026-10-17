@@ -1,11 +1,12 @@
 import { getRequestModelId, resolveAccount } from '../accounts.js';
-import { parseClaudeSseStream, startClaudeCall, translateClaudeStream } from '../claude/index.js';
+import { parseClaudeSseStream, readClaudeAccountMetadata, startClaudeCall, translateClaudeStream } from '../claude/index.js';
 import { TURN_STATE_HEADER } from '../constants.js';
 import { createProxyError, isProxyError } from '../errors.js';
-import { formatSseEvent, parseSseStream } from '../utils/sse.js';
+import { formatSseEvent, parseSseStream, readSseChunks } from '../utils/sse.js';
 import { getForwardedHeaders, getRequestHeader, type HandlerContext, sendJson, SSE_HEADERS, writeText } from '../utils/http.js';
 import { collectResponse } from './collectResponse.js';
 import { normalizeResponsesRequest } from './normalizeResponsesRequest.js';
+import { assertSameLogin, createResponseRecorder, expandPreviousResponse, observeEvents } from './responseStore.js';
 import type { ServerResponse } from 'node:http';
 import type { ClaudeStreamMeta } from '../claude/toResponsesEvents.js';
 
@@ -33,15 +34,27 @@ const writeStreamFailure = async (res: ServerResponse, meta: ClaudeStreamMeta, s
   await writeText(res, formatSseEvent(failure)).catch(() => undefined);
 };
 
-export const handleResponses = async ({ body, req, res, signal, deps, log }: HandlerContext): Promise<void> => {
-  const modelId = await getRequestModelId(deps, body.model);
+export const handleResponses = async ({ body: rawBody, req, res, signal, deps, log, responseStore }: HandlerContext): Promise<void> => {
+  const modelId = await getRequestModelId(deps, rawBody.model);
   const { account, slug } = resolveAccount(deps.accounts, modelId);
+  // Both providers see the expanded full input, exactly what a full-history client would send.
+  const { body, inputItems, previous } = expandPreviousResponse(responseStore, rawBody, account.alias);
+  // The login that really sent this request, like the Claude turn state; records are bound to it.
+  let accountIdentity: string | undefined;
+  // OpenAI semantics: store:false responses are not kept for a later previous_response_id.
+  const observe =
+    rawBody.store === false
+      ? undefined
+      : createResponseRecorder((id, output) => responseStore.save({ id, alias: account.alias, accountIdentity, input: inputItems, output }));
 
   if (account.provider === 'claude') {
+    // Local file read only, the same source startClaudeCall uses; no extra upstream call.
+    accountIdentity = (await readClaudeAccountMetadata(account.homePath)).accountUuid;
+    assertSameLogin(previous, accountIdentity);
     // Claude emits its own Messages SSE, so events are translated instead of piped through.
     const call = await startClaudeCall({ account, slug, body, signal, deps, log });
     if (!call.upstream.body) throw new Error('Upstream response has no body');
-    const events = translateClaudeStream({ events: parseClaudeSseStream(call.upstream.body), meta: call.meta, saveState: call.saveState });
+    const events = observeEvents(translateClaudeStream({ events: parseClaudeSseStream(call.upstream.body), meta: call.meta, saveState: call.saveState }), observe);
     try {
       if (body.stream === true) {
         res.writeHead(200, { ...SSE_HEADERS, ...getForwardedHeaders(call.upstream.headers) });
@@ -77,18 +90,27 @@ export const handleResponses = async ({ body, req, res, signal, deps, log }: Han
     isResponsesLite,
     turnState: getRequestHeader(req, TURN_STATE_HEADER),
     signal,
+    // Checked at every real send, including the 401 retry, so no extra credential read or refresh.
+    onCredentials: (credentials) => {
+      assertSameLogin(previous, credentials.accountId);
+      accountIdentity = credentials.accountId;
+    },
   });
   log.upstreamRequestId = upstream.headers.get('x-oai-request-id') ?? undefined;
   if (!upstream.body) throw new Error('Upstream response has no body');
 
   if (body.stream === true) {
     // Backend omits content-type on SSE, so set it explicitly and pipe events through untouched.
+    // Events are recorded before their chunk is written, so the terminal chunk follows the save.
     res.writeHead(200, { ...SSE_HEADERS, ...getForwardedHeaders(upstream.headers) });
-    for await (const chunk of upstream.body) await writeText(res, chunk);
+    for await (const { chunk, events } of readSseChunks(upstream.body)) {
+      if (observe) events.forEach(observe);
+      await writeText(res, chunk);
+    }
     res.end();
     return;
   }
 
-  const collected = await collectResponse(parseSseStream(upstream.body));
+  const collected = await collectResponse(observeEvents(parseSseStream(upstream.body), observe));
   sendJson(res, 200, collected.response, getForwardedHeaders(upstream.headers));
 };

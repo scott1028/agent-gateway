@@ -20,6 +20,8 @@ export const REFRESH_BEFORE_EXPIRY_MS = 5 * 60 * 1000;
 export const REFRESH_FALLBACK_AGE_MS = 8 * 24 * 60 * 60 * 1000;
 export const MODEL_CATALOG_TTL_MS = 5 * 60 * 1000;
 export const MAX_BODY_BYTES = 50 * 1024 * 1024;
+// Project-owned gateway memory cap for previous_response_id records (no upstream counterpart).
+export const RESPONSE_STORE_MAX_ENTRIES = 1000;
 
 // Verified by scripts/poc.ts: the backend accepts these fields and rejects most others
 // (temperature, top_p, metadata, user, truncation, safety_identifier, top_logprobs, ...).

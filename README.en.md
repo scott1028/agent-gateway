@@ -101,7 +101,7 @@ codex exec -c 'model_providers.agent-gateway={ name = "agent-gateway", base_url 
 ## Things to watch out for
 
 - Give each home to one gateway only, and don't run `codex` on it at the same time. A refresh token works only once, so simultaneous refreshes knock each other out.
-- `previous_response_id` is not supported; send the whole conversation every time.
+- `previous_response_id` is handled inside the gateway: finished responses are kept in memory (up to 1000, lost on restart), and the id is expanded into the full input before the upstream call, so the upstream request is exactly the same as sending the whole conversation. Responses sent with `store:false` are not kept; `instructions` and `tools` are not carried over, so resend them every turn; continue with a model of the same account, and after the home logs in to another account, old ids can no longer be continued.
 - Out of quota returns 429; a plan without Codex returns 403; if the token cannot be recovered, it returns 401 with the command to log in again.
 - More limits and conversion rules are in the [user guide](docs/GUIDE.md).
 

@@ -34,16 +34,22 @@ const toResponsesEvents = (messages: SseMessage[]): ResponsesEvent[] =>
     }
   });
 
-export async function* parseSseStream(body: AsyncIterable<Uint8Array>): AsyncGenerator<ResponsesEvent> {
+// Yields each raw chunk untouched with the events it completes; the final flush has an empty chunk.
+export async function* readSseChunks(body: AsyncIterable<Uint8Array>): AsyncGenerator<{ chunk: Uint8Array; events: ResponsesEvent[] }> {
   const decoder = new TextDecoder();
   let buffer = '';
   for await (const chunk of body) {
     const { messages, rest } = splitSseEvents(buffer + decoder.decode(chunk, { stream: true }));
     buffer = rest;
-    yield* toResponsesEvents(messages);
+    yield { chunk, events: toResponsesEvents(messages) };
   }
   const { messages } = splitSseEvents(`${buffer}${decoder.decode()}\n\n`);
-  yield* toResponsesEvents(messages);
+  const events = toResponsesEvents(messages);
+  if (events.length > 0) yield { chunk: new Uint8Array(0), events };
+}
+
+export async function* parseSseStream(body: AsyncIterable<Uint8Array>): AsyncGenerator<ResponsesEvent> {
+  for await (const { events } of readSseChunks(body)) yield* events;
 }
 
 export const formatSseData = (data: unknown): string => `data: ${JSON.stringify(data)}\n\n`;

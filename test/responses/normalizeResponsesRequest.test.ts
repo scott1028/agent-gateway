@@ -33,8 +33,11 @@ describe('normalizeResponsesRequest', () => {
     expect(request.reasoning).toEqual({ effort: 'max' });
   });
 
-  it('rejects previous_response_id and missing model', () => {
-    expect(() => normalizeResponsesRequest({ model: 'm', input: 'hi', previous_response_id: 'r' })).toThrow(/previous_response_id/);
+  it('never forwards previous_response_id and rejects a missing model', () => {
+    // handleResponses expands previous_response_id before this point; a leftover key is dropped.
+    const { request, strippedKeys } = normalizeResponsesRequest({ model: 'm', input: 'hi', previous_response_id: 'r' });
+    expect(request).not.toHaveProperty('previous_response_id');
+    expect(strippedKeys).toEqual(['previous_response_id']);
     expect(() => normalizeResponsesRequest({ input: 'hi' })).toThrow(/model/);
   });
 

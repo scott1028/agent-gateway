@@ -3,7 +3,7 @@
 import type { ClaudeAccount } from '../accounts.js';
 import { CLAUDE_BASE_URL, CLAUDE_TOKEN_URL } from '../constants.js';
 import type { ClaudeHome } from '../types.js';
-import { createClaudeAuthManager } from './auth.js';
+import { createClaudeAuthManager, readClaudeAccountMetadata } from './auth.js';
 import { createClaudeClient } from './client.js';
 import { startClaudeCall } from './handleClaude.js';
 import { createClaudeModelCatalog } from './models.js';
@@ -12,7 +12,7 @@ import { createClaudeStateStore } from './state.js';
 import { parseClaudeSseStream } from './sse.js';
 import { translateClaudeStream } from './toResponsesEvents.js';
 
-export { startClaudeCall, assertClaudeChatInput, parseClaudeSseStream, translateClaudeStream };
+export { startClaudeCall, assertClaudeChatInput, parseClaudeSseStream, translateClaudeStream, readClaudeAccountMetadata };
 
 // Reads the login once so a missing or dead credential fails at startup with the login hint,
 // exactly like the Codex home check does. The account uuid is deliberately NOT captured here:

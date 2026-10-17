@@ -525,8 +525,10 @@ describe('max_tokens and unknown models', () => {
 });
 
 describe('unsupported OpenAI features', () => {
-  it('rejects previous_response_id and Codex-only fields', () => {
-    expect(getError(() => prepare({ ...userText('hi'), previous_response_id: 'resp_1' })).message).toContain('previous_response_id');
+  it('never sends previous_response_id upstream: the gateway expands it before this point', () => {
+    const { request } = prepare({ ...userText('hi'), previous_response_id: 'resp_1' });
+    expect(request).not.toHaveProperty('previous_response_id');
+    expect(JSON.stringify(request)).not.toContain('resp_1');
   });
 
   it('never leaks Codex Responses wrappers into the Claude request', () => {

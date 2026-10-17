@@ -186,7 +186,7 @@ Codex backend |                          | 生成內容／工具呼叫   | 讀�
 | json_schema `strict` | Chat 缺省 false；Responses 保留 caller 物件 | 缺省 true |
 | `service_tier` | 可轉送 | 不放入 subscription body |
 | `max_output_tokens` | allowlist 保留；Chat 的 token cap 轉為此欄位 | 刻意不送，即使 stream() 收到 max_tokens |
-| `previous_response_id` | 非 null 時本機 400，要求完整 history | 不構造此欄位，使用完整 history |
+| `previous_response_id` | gateway 本機記憶體保存已完成的 response（最多 1000 筆，重啟即失，`store:false` 不存；綁定 alias 與登入的 `account_id`，換登入後舊 id 不能續接），展開成完整 history 再送；上游仍是 `store:false` 加完整 input，不送此欄位 | 不構造此欄位，使用完整 history |
 | Lite tools | top-level tools 移入 developer `additional_tools`；function/custom 包 `functions` namespace | 一律建 top-level function tools，無 Lite 分支 |
 
 證據：[^P-normalize] [^P-chat] [^U-input] [^U-request] [^U-route]

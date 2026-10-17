@@ -5,6 +5,7 @@ import { handleChatCompletions } from './chat/handleChatCompletions.js';
 import { LOCAL_HOSTNAMES, MAX_BODY_BYTES } from './constants.js';
 import { createProxyError, isProxyError, toOpenAiErrorBody } from './errors.js';
 import { handleResponses } from './responses/handleResponses.js';
+import { createResponseStore, type ResponseStore } from './responses/responseStore.js';
 import { getDebugPrefix, getDebugSeparator, getFormattedBody, getMaskedAuthorization } from './utils/debugFetch.js';
 import { type ProxyDeps, readJsonBody, type RequestLog, sendJson } from './utils/http.js';
 
@@ -90,7 +91,7 @@ const logIncomingTraffic = (req: IncomingMessage, res: ServerResponse, incoming:
   });
 };
 
-const handleRequest = async (req: IncomingMessage, res: ServerResponse, deps: ProxyDeps): Promise<void> => {
+const handleRequest = async (req: IncomingMessage, res: ServerResponse, deps: ProxyDeps, responseStore: ResponseStore): Promise<void> => {
   const startedAtMs = Date.now();
   const log: RequestLog = {};
   const controller = new AbortController();
@@ -126,7 +127,7 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse, deps: Pr
     if (!req.headers['content-type']?.startsWith('application/json')) {
       throw createProxyError({ status: 415, message: 'Content-Type must be application/json' });
     }
-    const context = { body: await readJsonBody(req, MAX_BODY_BYTES), req, res, signal: controller.signal, deps, log };
+    const context = { body: await readJsonBody(req, MAX_BODY_BYTES), req, res, signal: controller.signal, deps, log, responseStore };
     if (deps.debugLevel === 2 || deps.debugLevel === 3) {
       console.log(`${getDebugPrefix()} incoming ${route} body:\n${JSON.stringify(context.body, null, 2)}`);
     }
@@ -138,7 +139,10 @@ const handleRequest = async (req: IncomingMessage, res: ServerResponse, deps: Pr
   }
 };
 
-export const createProxyServer = (deps: ProxyDeps): Server =>
-  createServer((req, res) => {
-    void handleRequest(req, res, deps);
+// One previous_response_id store per server, so each server instance keeps its own responses.
+export const createProxyServer = (deps: ProxyDeps): Server => {
+  const responseStore = createResponseStore();
+  return createServer((req, res) => {
+    void handleRequest(req, res, deps, responseStore);
   });
+};

@@ -263,7 +263,6 @@ Claude 的 thinking 區塊帶簽章，工具回合續接時必須原樣送回，
 
 ### Claude 不支援（一律 400，不猜等價寫法）
 
-- `previous_response_id`（Claude 不保存對話，要送完整 input）。
 - `text.format.type: "json_object"`（上游沒有等價寫法）；`json_schema` 會轉成 `output_config.format` 送出，不支援結構化輸出的模型則回 400。
 - 非 `function` 的工具（內建 web search、MCP、custom、namespace）。
 - 不支援的 `tool_choice`、不支援的 effort 值、不允許關閉 thinking 的模型要求關閉（`reasoning.effort:"none"`）。
@@ -302,7 +301,14 @@ codex exec -c 'model_providers.agent-gateway={ name = "agent-gateway", base_url 
 - backend 不接受的參數直接移除，並在 log 的 `ignored=` 欄位列出，例如 `temperature`、`top_p`、`metadata`、`user`、`truncation`、`top_logprobs`、`safety_identifier`、`stop`。
 - `system` role 改成 `developer`，因為 backend 會回 `System messages are not allowed`。
 - `reasoning.effort: "ultra"` 改成 `max`。沒指定 effort 時，用模型的預設值。
-- `previous_response_id` 回 400。backend 不保存對話（`store:false`），所以要送完整 input。
+- `previous_response_id` 由 gateway 在本機處理（Codex 與 Claude 帳號共用；這是 gateway 自有行為，不是 backend 實測結果）：
+  - 已完成的 response 存在記憶體（LRU，最多 1000 筆），重啟 gateway 就沒了；OpenAI 官方是保存 30 天。
+  - 收到 `previous_response_id` 時，把該 response 的 input、output 和這次的新 input 接成完整 input 再送上游。上游看到的請求和「每次送完整對話」完全相同：Codex 仍是 `store:false` 加完整 input，Claude 仍是完整 `messages`（含簽章 thinking 回放）。
+  - `store:false` 的請求不保存，之後拿它的 id 續接會回 400 `previous_response_not_found`；id 不存在、已被淘汰或 gateway 重啟過也一樣。
+  - `instructions`、`tools` 不會沿用（同 OpenAI 語意），每次要重送。
+  - 必須用同一個帳號的 model 續接；換帳號（例如 `codex1` 的 response id 配 `claude1/...`）回 400。同一個 home 不重啟就換登入（Codex 看憑證的 `account_id`，Claude 看 `accountUuid`）之後，舊的 id 也回 400，不會把舊帳號的對話送給新帳號。
+  - 回應物件裡的 `previous_response_id` 欄位維持上游原值（Codex 為 `null`，Claude 沒有這個欄位）。
+  - 不提供 `GET`／`DELETE /v1/responses/{id}`。
 - 對 Responses Lite 模型（目前的 `gpt-6-*`、`gpt-5.6-*`），比照 Codex 做以下處理：
   - tools 包進 `additional_tools` 的 `functions` namespace。
   - `parallel_tool_calls:false`。

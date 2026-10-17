@@ -101,7 +101,7 @@ codex exec -c 'model_providers.agent-gateway={ name = "agent-gateway", base_url 
 ## 要注意的事
 
 - 一個 home 只給一個 gateway 用，也不要同時拿它跑 `codex`。refresh token 只能用一次，同時更新會互相踢掉。
-- 不支援 `previous_response_id`，每次都要送完整對話。
+- `previous_response_id` 由 gateway 在本機處理：已完成的 response 存在記憶體（最多 1000 筆，重啟就沒了），收到時展開成完整 input 再送上游，上游看到的請求和送完整對話完全相同。`store:false` 的 response 不保存；`instructions`、`tools` 不會沿用，每次要重送；必須用同一個帳號的 model 續接，同一個 home 換登入後，舊的 id 也不能續接。
 - 額度用完回 429；方案不含 Codex 回 403；token 救不回來時回 401，並提示重新登入的指令。
 - 更多限制與轉換規則見[使用指南](docs/GUIDE.md)。
 

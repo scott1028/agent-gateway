@@ -343,9 +343,6 @@ const markLastEligibleMessage = (messages: Json[]): void => {
 // handleClaude runs this before computing conversation identities; prepareClaudeRequest runs it
 // again so direct callers get the same guarantee.
 export const validateClaudeResponsesInput = (body: Json): void => {
-  if (body.previous_response_id !== undefined && body.previous_response_id !== null) {
-    throw createProxyError({ status: 400, message: '`previous_response_id` is not supported: send the full input' });
-  }
   if (body.instructions !== undefined && body.instructions !== null && typeof body.instructions !== 'string') {
     throw createProxyError({ status: 400, message: '`instructions` must be a string' });
   }

@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Account } from '../accounts.js';
 import { FORWARDED_RESPONSE_HEADER_PREFIX, FORWARDED_RESPONSE_HEADERS } from '../constants.js';
 import { createProxyError } from '../errors.js';
+import type { ResponseStore } from '../responses/responseStore.js';
 import type { DebugLevel, Json } from '../types.js';
 
 export type ProxyDeps = { accounts: Account[]; contextLength: number; defaultModelId?: string; debugLevel?: DebugLevel; apiKey?: string; now?: () => number };
@@ -15,6 +16,7 @@ export type HandlerContext = {
   signal: AbortSignal;
   deps: ProxyDeps;
   log: RequestLog;
+  responseStore: ResponseStore;
 };
 
 export const SSE_HEADERS = {

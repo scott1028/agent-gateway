@@ -184,10 +184,10 @@ TTL：`z4` 只在 ttl 有值時才送 `ttl`，而主推論只把 `ttl:"1h"` 傳�
 9. **沒有官方 CLI 的附加功能**：subagent/remote 容器 headers、attestation、`tool_search`/`context_management`/compaction 請求參數、`countTokens`、非流式 `stream:false` 路徑（gateway 一律串流上游）、prompt caching 的 1h TTL 情境與 `DISABLE_PROMPT_CACHING*` 開關（gateway 一律不帶 ttl，§8.2）。
 10. **狀態檔是 gateway 自有目錄**，官方不會讀，gateway 也不碰官方檔案（憑證檔除外，那是共用的登入來源）。
 11. **caller 指令位置**：支援的模型依 CLIProxyAPI 放進第一個 user 後的 system 訊息，保留全文與 system 角色；legacy 模型仍留 top-level，沒有降成 user reminder。這是代理適配，不宣稱完全複製官方每種 prompt builder。OpenCode 的修正前後實測、GA 依據與未驗證項目見重新比對報告。
+12. **`previous_response_id` 由 gateway 本機展開（上游請求不變，不是偏離）**：Claude Messages API 沒有伺服器端對話狀態，client 每輪都要重送完整 `messages`。gateway 把已完成的 response 存在記憶體（LRU 最多 1000 筆，重啟即失；`store:false` 不存），收到 id 時先展開成完整 input，再走同一條 Claude 路徑，所以上游 `messages`（含簽章 thinking 回放）與 client 重送完整歷史時相同。`instructions`／`tools` 不沿用（OpenAI 語意），必須同一個帳號（alias 與 `accountUuid` 都要相同，同一 home 換登入後舊 id 不能續接）；回應物件沒有 `previous_response_id` 欄位。
 
 ## 10. 支援邊界（一律 400，不猜等價寫法）
 
-- `previous_response_id`（Claude 不保存對話）。
 - `text.format.type:"json_object"` 與 Chat `response_format` 的 `json_object`（pinned release 沒有可佐證的等價寫法；`json_schema` 有，見 §6）。
 - 非 `function` 工具（內建 web search、MCP、custom、namespace 等）。
 - 不支援的 `tool_choice`、不支援的 effort 值、`rejects_disabled_thinking` 模型要求關閉 thinking。

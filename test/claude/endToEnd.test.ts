@@ -13,11 +13,14 @@ import type { Account, ClaudeAccount } from '../../src/accounts.js';
 import { createClaudeAuthManager } from '../../src/claude/auth.js';
 import type { ClaudeAuthManager } from '../../src/claude/auth.js';
 import { CLAUDE_CLI_VERSION } from '../../src/constants.js';
+import { getConfig } from '../../src/config.js';
+import { createModelCatalog } from '../../src/models.js';
 import { createClaudeClient } from '../../src/claude/client.js';
 import { createClaudeModelCatalog } from '../../src/claude/models.js';
 import { createClaudeStateStore } from '../../src/claude/state.js';
 import { createProxyServer } from '../../src/server.js';
 import type { Json } from '../../src/types.js';
+import { createCodexClient } from '../../src/upstream/codexClient.js';
 import { readFixture } from '../helpers.js';
 
 // File-level isolation: the UA generator and attribution read these env vars, so every test in
@@ -49,6 +52,8 @@ const upstreamHeaders: Record<string, string>[] = [];
 let nextFixture = 'claude-text.sse';
 // Set to a body to make the mocked upstream answer with a plain (non-SSE) JSON success response.
 let nextJsonBody: Json | undefined;
+// Set to a stream to serve the next upstream call once; the test decides when it ends.
+let nextStreamBody: ReadableStream<Uint8Array> | undefined;
 const instances: ReturnType<typeof createProxyServer>[] = [];
 let baseUrl = '';
 
@@ -58,7 +63,9 @@ const fetchFn = vi.fn<typeof fetch>(async (_input: Parameters<typeof fetch>[0], 
   if (nextJsonBody !== undefined) {
     return new Response(JSON.stringify(nextJsonBody), { status: 200, headers: { 'content-type': 'application/json' } });
   }
-  return new Response(readFixture(nextFixture), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  const streamBody = nextStreamBody;
+  nextStreamBody = undefined;
+  return new Response(streamBody ?? readFixture(nextFixture), { status: 200, headers: { 'content-type': 'text/event-stream' } });
 });
 
 const makeAccount = (homePath: string): Account => ({
@@ -71,8 +78,8 @@ const makeAccount = (homePath: string): Account => ({
   state: createClaudeStateStore({ stateDir: path.join(homePath, '.agent-gateway', 'claude-state') }),
 });
 
-const startServer = async (account: Account): Promise<string> => {
-  const instance = createProxyServer({ accounts: [account], contextLength: 200000 });
+const startServer = async (...accounts: Account[]): Promise<string> => {
+  const instance = createProxyServer({ accounts, contextLength: 200000 });
   await new Promise<void>((resolve) => instance.listen(0, '127.0.0.1', resolve));
   instances.push(instance);
   return `http://127.0.0.1:${(instance.address() as AddressInfo).port}/v1`;
@@ -114,6 +121,14 @@ const sseDataOf = (text: string): Json[] =>
     .split('\n')
     .filter((line) => line.startsWith('data: ') && line !== 'data: [DONE]')
     .map((line) => JSON.parse(line.slice(6)) as Json);
+
+// Prompt caching matches tools -> system -> messages as a prefix; a moving breakpoint marker does
+// not decide a hit by itself, so cache_control is removed at every level before comparing.
+const stripCacheControl = (node: unknown): unknown => {
+  if (Array.isArray(node)) return node.map(stripCacheControl);
+  if (node === null || typeof node !== 'object') return node;
+  return Object.fromEntries(Object.entries(node).filter(([key]) => key !== 'cache_control').map(([key, value]) => [key, stripCacheControl(value)]));
+};
 
 const USER_TURN: Json = {
   model: 'claude-opus-5',
@@ -444,6 +459,161 @@ describe('text + tool round trip', () => {
       tools: turn.tools as Json[],
     });
     expect(response.status).toBe(400);
+  });
+});
+
+describe('previous_response_id', () => {
+  const turn: Json = {
+    model: 'claude-opus-5',
+    input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'weather, continued by id?' }] }],
+    tools: RESPONSES_TURN.tools,
+  };
+
+  it('continues a tool-use turn by id and replays the stored signed thinking block', async () => {
+    nextFixture = 'claude-tool-call.sse';
+    const first = (await (await post('/responses', turn)).json()) as Json;
+    const output = first.output as Json[];
+    expect(output.find((item) => item.type === 'function_call')).toMatchObject({ call_id: TOOL_CALL_ID, name: 'get_weather' });
+
+    nextFixture = 'claude-text.sse';
+    const toolOutput = { type: 'function_call_output', call_id: TOOL_CALL_ID, output: 'sunny in Paris' };
+    const second = await post('/responses', { model: turn.model, previous_response_id: first.id, input: [toolOutput], tools: turn.tools });
+    expect(second.status).toBe(200);
+    const expanded = lastUpstreamRequest();
+    expect((expanded.messages as Json[])[1]).toEqual({
+      role: 'assistant',
+      content: [
+        { type: 'thinking', thinking: 'I should call the weather tool.', signature: 'Eq4KCmUIhAIKEGN2eA5xkQ2SgBACQo1K7' },
+        { type: 'tool_use', id: TOOL_CALL_ID, name: 'get_weather', input: { city: 'Paris' } },
+      ],
+    });
+    expect((expanded.messages as Json[])[2]).toMatchObject({ role: 'user', content: [{ type: 'tool_result' }] });
+    expect(expanded).not.toHaveProperty('previous_response_id');
+
+    // A client resending the full history produces the same upstream body.
+    await post('/responses', { ...turn, input: [...(turn.input as Json[]), ...output, toolOutput] });
+    expect(lastUpstreamRequest()).toEqual(expanded);
+  });
+
+  it('keeps tools, system, the message prefix and the session stable across a continuation', async () => {
+    const cacheTurn: Json = { model: 'claude-opus-5', tools: RESPONSES_TURN.tools };
+    nextFixture = 'claude-text.sse';
+    const first = (await (await post('/responses', { ...cacheTurn, input: 'cache me, then continue by id' })).json()) as Json;
+    const firstRequest = lastUpstreamRequest();
+    const firstHeaders = upstreamHeaders.at(-1) ?? {};
+    const second = await post('/responses', { ...cacheTurn, previous_response_id: first.id, input: 'and a follow-up' });
+    expect(second.status).toBe(200);
+    const secondRequest = lastUpstreamRequest();
+    const secondHeaders = upstreamHeaders.at(-1) ?? {};
+
+    expect(Array.isArray(firstRequest.tools)).toBe(true);
+    expect(secondRequest.tools).toEqual(firstRequest.tools);
+    // The billing block's cch differs per request by official design: src/claude/attribution.ts:82-96
+    // signs every final body, and references/CLIProxyAPI @5fc580b1
+    // internal/runtime/executor/claude_signing.go:180-201 quotes the native gate that always sends
+    // cch for firstParty on api.anthropic.com. Mocks cannot show whether upstream ignores cch when
+    // matching the cache; only a manual real run (turn 2 usage cached_tokens > 0) confirms it. So
+    // only the single trailing cch of the billing block in system[0] is masked; everything else,
+    // the cc_version fingerprint and the other system blocks included, is compared as is.
+    const maskBillingCch = (system: unknown): Json[] => {
+      const [billing, ...otherBlocks] = stripCacheControl(system) as Json[];
+      const text = String(billing?.text);
+      expect(text.startsWith('x-anthropic-billing-header:')).toBe(true);
+      expect(text).toMatch(/ cch=[0-9a-f]{5};$/);
+      const masked = text.replace(/cch=[0-9a-f]{5};$/, 'cch=xxxxx;');
+      expect(masked).toBe(`${text.slice(0, -'xxxxx;'.length)}xxxxx;`);
+      return [{ ...billing, text: masked }, ...otherBlocks];
+    };
+    expect(maskBillingCch(secondRequest.system)).toEqual(maskBillingCch(firstRequest.system));
+    const firstMessages = stripCacheControl(firstRequest.messages) as Json[];
+    const secondMessages = stripCacheControl(secondRequest.messages) as Json[];
+    // The prefix must be the real first turn, never an empty conversation.
+    expect(firstMessages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'cache me, then continue by id' }] }]);
+    expect(secondMessages.length).toBeGreaterThan(firstMessages.length);
+    expect(secondMessages.slice(0, firstMessages.length)).toEqual(firstMessages);
+    // Both turns carry the same non-empty session id in metadata and in the header.
+    const getSessionOf = (request: Json): unknown => (JSON.parse(String((request.metadata as Json).user_id)) as Json).session_id;
+    const firstSession = getSessionOf(firstRequest);
+    expect(firstSession).toEqual(expect.stringMatching(/\S/));
+    expect(firstHeaders['x-claude-code-session-id']).toBe(firstSession);
+    expect(getSessionOf(secondRequest)).toBe(firstSession);
+    expect(secondHeaders['x-claude-code-session-id']).toBe(firstSession);
+  });
+
+  it('keeps the record before the client sees response.completed on a stream', async () => {
+    let closeUpstream = (): void => undefined;
+    nextStreamBody = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        controller.enqueue(new TextEncoder().encode(readFixture('claude-text.sse')));
+        closeUpstream = () => controller.close();
+      },
+    });
+    const first = await post('/responses', { model: 'claude-opus-5', input: 'stream, then continue by id', stream: true });
+    const reader = (first.body as ReadableStream<Uint8Array>).getReader();
+    const decoder = new TextDecoder();
+    let streamed = '';
+    while (!streamed.includes('event: response.completed\n') || !streamed.endsWith('\n\n')) {
+      const { value } = await reader.read();
+      streamed += decoder.decode(value, { stream: true });
+    }
+    const completed = sseDataOf(streamed).find((event) => event.type === 'response.completed');
+
+    // The upstream stream is still open after message_stop, so only a save made before the write can serve this.
+    nextFixture = 'claude-text.sse';
+    const second = await post('/responses', { model: 'claude-opus-5', previous_response_id: (completed?.response as Json).id, input: 'again' });
+    expect(second.status).toBe(200);
+    const messages = lastUpstreamRequest().messages as Json[];
+    expect(messages.map((message) => message.role)).toEqual(['user', 'assistant', 'user']);
+    expect(messages[0]?.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'text', text: 'stream, then continue by id' })]));
+    expect(messages[1]?.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'text', text: 'Hello there.' })]));
+
+    closeUpstream();
+    for (let chunk = await reader.read(); !chunk.done; chunk = await reader.read()) streamed += decoder.decode(chunk.value, { stream: true });
+  });
+
+  it('rejects a continuation after the home relogs into another account, before any upstream call', async () => {
+    const reloginHome = await mkdtemp(path.join(os.tmpdir(), 'agent-gateway-claude-previous-'));
+    const login = (uuid: string): Promise<void> => writeFile(path.join(reloginHome, '.claude.json'), JSON.stringify({ oauthAccount: { accountUuid: uuid } }));
+    await login('uuid-A');
+    const reloginUrl = await startServer(makeAccount(reloginHome));
+    nextFixture = 'claude-text.sse';
+    const first = (await (await post('/responses', { model: 'claude-opus-5', input: 'private prompt of A' }, reloginUrl)).json()) as Json;
+    expect(JSON.parse(String((lastUpstreamRequest().metadata as Json).user_id)).account_uuid).toBe('uuid-A');
+
+    await login('uuid-B');
+    const before = upstreamRequests.length;
+    const response = await post('/responses', { model: 'claude-opus-5', previous_response_id: first.id, input: 'again' }, reloginUrl);
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: { message: string } }).error.message).toBe(
+      `Previous response with id '${String(first.id)}' was created under another login; start a new conversation.`,
+    );
+    expect(upstreamRequests.length).toBe(before);
+  });
+
+  it('rejects a Codex account response id on a Claude model before any Claude upstream call', async () => {
+    const config = getConfig({}, ['/tmp/claude-e2e-codex']);
+    const codexAccount: Account = {
+      provider: 'codex',
+      alias: 'codex1',
+      homePath: '/tmp/claude-e2e-codex',
+      catalog: createModelCatalog({ getModels: async () => [{ slug: 'gpt-x' }] }),
+      client: createCodexClient({
+        auth: {
+          getCredentials: async () => ({ accessToken: 'test-token', isFedramp: false }),
+          recoverUnauthorized: async () => ({ accessToken: 'test-token', isFedramp: false }),
+        },
+        config,
+        authPath: '/tmp/claude-e2e-codex/auth.json',
+        fetchFn: async () => new Response(readFixture('text-nonlite.sse')),
+      }),
+    };
+    const mixedUrl = await startServer(codexAccount, makeAccount(home));
+    const codexResponse = (await (await post('/responses', { model: 'codex1/gpt-x', input: 'ping' }, mixedUrl)).json()) as Json;
+    const before = upstreamRequests.length;
+    const response = await post('/responses', { model: 'claude1/claude-opus-5', previous_response_id: codexResponse.id, input: 'again' }, mixedUrl);
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: { message: string } }).error.message).toContain('another account');
+    expect(upstreamRequests.length).toBe(before);
   });
 });
 
