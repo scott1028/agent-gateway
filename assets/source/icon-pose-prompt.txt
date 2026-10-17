@@ -1,0 +1,18 @@
+Model: anima-preview3-base.safetensors
+Base: character-source.png; initial V-pose pass seed 2026101712, denoise 0.85.
+Refinement seed: 2026101742
+Steps: 32
+CFG: 4.5
+Sampler: er_sde
+Scheduler: simple
+Denoise: 0.55
+Edit: masked hand/wrist only; preserve the original face, hair, clothes and overall pose.
+Cuff palette: ColorTransfer reinhard_lab, strength 1.0, reference tile from character-source.png at x=1137,y=521,width=10,height=10.
+
+Positive prompt:
+masterpiece, best quality, anime illustration, chibi, 1girl, v, peace sign, two fingers, small delicate hand, natural hand anatomy, small curved thumb folded across curled ring and little fingers, palm facing viewer, neat slender index and middle fingers raised in a V. Thin smooth dark navy lineart, clean uniform precise outlines, flat colors, cel shading, simple clean curves, small hands matching chibi proportions. An orange GOLDEN ribbed cuff surrounds the wrist, amber orange sleeve cuff, pale ivory cream puffy hoodie sleeve with golden orange cuff, coherent sleeve and hand, smooth wrist connection, clean continuous navy contour. Match the source illustration's delicate crisp outlines exactly. Preserve the girl's mint hair, face, purple eyes and winking smile. Pale mint background, no text.
+
+Negative prompt:
+worst quality, low quality, blurred, soft focus, missing outline, jagged, sketchy, fuzzy, fat outlines, big hands, fat fingers, swollen palm, huge thumb, deformed fingers, extra digits, missing fingers, fused fingers, mangled wrist, green cuff, mint cuff, turquoise cuff, wristband, bracelet, changed face, letters, watermark
+
+Contour correction (ComfyUI masked composition): restore the missing thumb outline with navy RGB(8,7,57), 3.6 px stroke, cubic Bezier points [(1156,488),(1162,485.3),(1169.8,486.1),(1172.2,494)]. Extend the foreground matte over the repaired stroke.

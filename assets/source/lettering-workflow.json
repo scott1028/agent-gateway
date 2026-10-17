@@ -1,0 +1,211 @@
+{
+  "25": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "mascot.png"
+    }
+  },
+  "40": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "width": 1000,
+      "height": 520,
+      "batch_size": 1,
+      "color": 0
+    }
+  },
+  "41": {
+    "class_type": "TextOverlay",
+    "inputs": {
+      "images": [
+        "40",
+        0
+      ],
+      "text": "Agent\nGateway",
+      "font_size": 40,
+      "color": "#FFFFFF",
+      "position": "top",
+      "align": "center",
+      "outline": false
+    }
+  },
+  "42": {
+    "class_type": "ImageToMask",
+    "inputs": {
+      "image": [
+        "55",
+        0
+      ],
+      "channel": "red"
+    }
+  },
+  "43": {
+    "class_type": "GrowMask",
+    "inputs": {
+      "mask": [
+        "42",
+        0
+      ],
+      "expand": 23,
+      "tapered_corners": true
+    }
+  },
+  "44": {
+    "class_type": "GrowMask",
+    "inputs": {
+      "mask": [
+        "42",
+        0
+      ],
+      "expand": 15,
+      "tapered_corners": true
+    }
+  },
+  "45": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "width": 1048,
+      "height": 568,
+      "batch_size": 1,
+      "color": 16773841
+    }
+  },
+  "46": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "width": 1048,
+      "height": 568,
+      "batch_size": 1,
+      "color": 1518928
+    }
+  },
+  "47": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "width": 1048,
+      "height": 568,
+      "batch_size": 1,
+      "color": 16754347
+    }
+  },
+  "48": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "width": 1048,
+      "height": 284,
+      "batch_size": 1,
+      "color": 16770211
+    }
+  },
+  "49": {
+    "class_type": "ImageCompositeMasked",
+    "inputs": {
+      "destination": [
+        "47",
+        0
+      ],
+      "source": [
+        "48",
+        0
+      ],
+      "x": 0,
+      "y": 284,
+      "resize_source": false
+    }
+  },
+  "50": {
+    "class_type": "ImageCompositeMasked",
+    "inputs": {
+      "destination": [
+        "25",
+        0
+      ],
+      "source": [
+        "45",
+        0
+      ],
+      "x": 116,
+      "y": 132,
+      "resize_source": false,
+      "mask": [
+        "43",
+        0
+      ]
+    }
+  },
+  "51": {
+    "class_type": "ImageCompositeMasked",
+    "inputs": {
+      "destination": [
+        "50",
+        0
+      ],
+      "source": [
+        "46",
+        0
+      ],
+      "x": 116,
+      "y": 132,
+      "resize_source": false,
+      "mask": [
+        "44",
+        0
+      ]
+    }
+  },
+  "52": {
+    "class_type": "ImageCompositeMasked",
+    "inputs": {
+      "destination": [
+        "51",
+        0
+      ],
+      "source": [
+        "49",
+        0
+      ],
+      "x": 116,
+      "y": 132,
+      "resize_source": false,
+      "mask": [
+        "42",
+        0
+      ]
+    }
+  },
+  "54": {
+    "class_type": "EmptyImage",
+    "inputs": {
+      "width": 1048,
+      "height": 568,
+      "batch_size": 1,
+      "color": 0
+    }
+  },
+  "55": {
+    "class_type": "ImageCompositeMasked",
+    "inputs": {
+      "destination": [
+        "54",
+        0
+      ],
+      "source": [
+        "41",
+        0
+      ],
+      "x": 24,
+      "y": 24,
+      "resize_source": false
+    }
+  },
+  "30": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "52",
+        0
+      ],
+      "filename_prefix": "agent-gateway/v5/banner"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+[submodule "references/codex"]
+	path = references/codex
+	url = org-14957082@github.com:openai/codex.git
+[submodule "references/claude-code"]
+	path = references/claude-code
+	url = git@github.com:anthropics/claude-code.git
+[submodule "references/unsloth"]
+	path = references/unsloth
+	url = git@github.com:unslothai/unsloth.git
+[submodule "references/EasyCLIProxyAPI"]
+	path = references/EasyCLIProxyAPI
+	url = https://github.com/router-for-me/EasyCLIProxyAPI
+[submodule "references/CLIProxyAPI"]
+	path = references/CLIProxyAPI
+	url = git@github.com:router-for-me/CLIProxyAPI.git
