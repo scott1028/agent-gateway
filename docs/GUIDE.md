@@ -179,7 +179,7 @@ npm start -- --codex-home ~/.agent-gateway --claude-home ~/.agent-gateway-claude
 
 **不用重開 client CLI**。這不是補成官方 relay，而是像剛開啟的第三方 client：由 gateway 重組請求，使用 gateway 自己的 headers、釘住的 UA、Claude Messages 的 `cch` 和目標 home 的帳號／token（count_tokens 使用下述專用形狀，沒有 billing/cch）。相似度沿用自組路徑的 Claude **65**／Codex **82.35** 基準，**不是 100**；這不是本次重新量測的分數。
 
-- 可降轉：Claude 缺 `cch`／OAuth beta、帳號不符、alias 不符、count_tokens session 未綁定、送出前 home 換帳號；Codex 入口或送出前帳號不符。log 會標示 `degraded=<reason>`，丟掉的欄位記在 `ignored=`。
+- 可降轉：Claude 缺 `cch`／OAuth beta、帳號不符、alias 不符、count_tokens session 未綁定、送出前 home 換帳號；Codex 入口或送出前帳號不符。log 會標示 `degraded=<reason>`，丟掉的欄位記在 `ignored=`。非官方 Claude Code 的 Anthropic client 走 2b cloak 路徑，一定被降轉，一律標示 `degraded=not_official_client`。
 - 不降轉：非路徑形式或不在 relay 前綴下的 request target、gateway API key 的 401／403、body 不是 JSON 物件的 Claude relay 與 Codex `POST /responses`（Codex 其他 endpoint 的 body 原樣轉送，不需要是 JSON）。非官方 Anthropic client 的 2b 嚴格驗證不變。
 - 目標帳號由 model alias 選擇；無 alias 時用該 provider 第一個 home，不會跨 provider。該 provider 沒有帳號時回 400；無效 alias/model 與無法組裝的請求仍依既有驗證回錯誤。
 - Claude 官方內容寬鬆保留：原位置的 `role:"system"`、deferred tools、`tool_reference`、未知 message blocks 和 `output_config`；移除 client billing／精確 SDK/CLI 前綴，清掉 client cache markers、metadata 與 thinking 設定後由 gateway 重建。`context_management`、`diagnostics` 與其他未知頂層欄位丟掉並記錄。`safeguards` 照轉，加 `dangerous-tool-use-2026-09-03`；deferred tools／tool references 加 `advanced-tool-use-2025-11-20`。

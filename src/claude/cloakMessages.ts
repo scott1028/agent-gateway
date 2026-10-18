@@ -40,6 +40,9 @@ export const cloakClaudeMessages = async (input: {
   log: RequestLog;
 }): Promise<void> => {
   const { res, body, signal, deps, log } = input;
+  // Every request reaching here is gateway-rebuilt, so the default access log marks it even when
+  // validation later rejects it before any upstream send.
+  log.degraded = 'not_official_client';
   const nativeRequest = toClaudeNativeRequest(body);
   if (nativeRequest.ignoredKeys.length > 0) log.ignoredKeys = nativeRequest.ignoredKeys;
   const { account, slug } = resolveAccount(deps.accounts, nativeRequest.model);

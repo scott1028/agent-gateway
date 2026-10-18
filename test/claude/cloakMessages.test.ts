@@ -153,6 +153,8 @@ describe('POST /v1/messages downgrade path', () => {
     expect(call?.headers['anthropic-beta']?.split(',').slice(0, 2)).toEqual([CLAUDE_CODE_BETA, CLAUDE_OAUTH_BETA]);
     await vi.waitFor(() => expect(log.mock.calls.flat().join('\n')).toContain('model=claude1/claude-opus-5'));
     expect(log.mock.calls.flat().join('\n')).toContain('ignored=temperature');
+    // The downgrade shows in the default access log, without --debug.
+    expect(log.mock.calls.flat().join('\n')).toContain('degraded=not_official_client');
   });
 
   it('aggregates a stream:false reply into one Message (thinking signature, tool input, usage)', async () => {
@@ -315,12 +317,15 @@ describe('official Claude Code requests stay on the native relay', () => {
   const relayHeaders = Object.fromEntries(Object.entries(RELAY_REQUEST.headers).filter(([name]) => !['host', 'connection', 'content-length'].includes(name)));
 
   it('relays the Claude Code request byte for byte and never downgrades it', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const base = await startGateway();
     const reply = await postMessages(base, RELAY_BODY, relayHeaders, RELAY_REQUEST.path);
     expect(reply.status).toBe(200);
     await reply.text();
     expect(relayUpstreamBodies).toEqual([RELAY_BODY]);
     expect(upstreamCalls).toHaveLength(0);
+    await vi.waitFor(() => expect(log.mock.calls.flat().join('\n')).toContain('POST /v1/messages'));
+    expect(log.mock.calls.flat().join('\n')).not.toContain('degraded=');
   });
 
   it('downgrades the same body once the client no longer looks like Claude Code', async () => {

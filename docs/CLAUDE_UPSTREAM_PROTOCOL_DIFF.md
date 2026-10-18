@@ -290,7 +290,7 @@ TTL：`z4` 只在 ttl 有值時才送 `ttl`，而主推論只把 `ttl:"1h"` 傳�
 
 這是 **gateway-built**，不是官方 client 的原樣請求：用既有組裝層、gateway 自己釘住的 UA/headers、目標 home metadata/token，重簽 `cch`。移除 client billing 和下一塊精確前綴；native 2.1.302 的完整集合為：`nl` @238379007（CLI）、`zd` @238379070（CLI running within SDK）、`qd` @238379170（Claude agent built on SDK）；`I_=[nl,zd,qd]` @238379238、`AKn` @238379267 使用 Set.has 完全比對。
 
-保留原位置的 `role:"system"`、deferred tools、`tool_reference`、其他 blocks、`output_config` 所有鍵與 `safeguards`；client cache markers 拿掉後套 gateway 標記；metadata 和 thinking 設定重建。未知頂層欄位、`context_management`、`diagnostics` 丟掉並記 `ignored=`；`degraded=` 記降轉原因。工具延遲載入／reference 加 `advanced-tool-use-2025-11-20`，safeguards 加 `dangerous-tool-use-2026-09-03`。2b 的嚴格規則不變。
+保留原位置的 `role:"system"`、deferred tools、`tool_reference`、其他 blocks、`output_config` 所有鍵與 `safeguards`；client cache markers 拿掉後套 gateway 標記；metadata 和 thinking 設定重建。未知頂層欄位、`context_management`、`diagnostics` 丟掉並記 `ignored=`；`degraded=` 記降轉原因。工具延遲載入／reference 加 `advanced-tool-use-2025-11-20`，safeguards 加 `dangerous-tool-use-2026-09-03`。2b 的嚴格規則不變。非官方 Anthropic client 的 2b cloak 路徑一律是降轉，access log 直接標 `degraded=not_official_client`（不需要 `--debug`）。
 
 Session header 存在時也用作 Messages 重建的 metadata session id；否則用 2b seed。只保留此 server 已在目標 alias 降轉回應記錄的 thinking 最後 signature／redacted data（SHA256 LRU 1000 筆，重啟清空）；過濾後空掉的 assistant 整則省略，不造假文字。stream 原樣回傳，在每個 `content_block_stop` 記錄；nonstream 用既有 collector。count_tokens 另用官方 count 形狀送 `/v1/messages/count_tokens?beta=true`，status/body 照轉。
 
