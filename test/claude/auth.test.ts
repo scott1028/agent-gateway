@@ -437,4 +437,29 @@ describe('readClaudeAccountMetadata', () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'agent-gateway-claude-account-'));
     expect(await readClaudeAccountMetadata(dir)).toEqual({});
   });
+
+  it('falls back to the home directory global config only for the default ~/.claude home', async () => {
+    // Mirrors references/claude-code v2.1.299 mods/telemetry/hooks/context/identity/global-config-path.ts:
+    // the official global config path is `<CLAUDE_CONFIG_DIR || home>/.claude.json`, so a login
+    // without CLAUDE_CONFIG_DIR records oauthAccount in the user's home, not inside ~/.claude.
+    const fakeHome = await mkdtemp(path.join(os.tmpdir(), 'agent-gateway-claude-home-'));
+    const defaultHome = path.join(fakeHome, '.claude');
+    await mkdir(defaultHome);
+    // A stale default-home config without oauthAccount must not hide the home-level login record.
+    await writeFile(path.join(defaultHome, '.claude.json'), JSON.stringify({ firstStartTime: 'synthetic' }));
+    await writeFile(path.join(fakeHome, '.claude.json'), JSON.stringify({ oauthAccount: { accountUuid: 'acct-home' }, userID: 'b'.repeat(64) }));
+    const homedir = vi.spyOn(os, 'homedir').mockReturnValue(fakeHome);
+    try {
+      expect(await readClaudeAccountMetadata(defaultHome)).toEqual({ accountUuid: 'acct-home', deviceId: 'b'.repeat(64) });
+      // A CLAUDE_CONFIG_DIR-style home must never adopt the home-level identity.
+      const namedHome = path.join(fakeHome, '.claude-named');
+      await mkdir(namedHome);
+      expect(await readClaudeAccountMetadata(namedHome)).toEqual({});
+      // The home's own config still wins over the fallback.
+      await writeFile(path.join(defaultHome, '.claude.json'), JSON.stringify({ oauthAccount: { accountUuid: 'acct-home-dir' } }));
+      expect((await readClaudeAccountMetadata(defaultHome)).accountUuid).toBe('acct-home-dir');
+    } finally {
+      homedir.mockRestore();
+    }
+  });
 });

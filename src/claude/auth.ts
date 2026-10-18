@@ -6,6 +6,7 @@
 // scope expansion at 214897545 (EHo) chosen by the caller at 218003555. Credentials are re-read
 // from disk on every use (the official flow reads the file per use), and losing the refresh lock
 // aborts an in-flight refresh so rotated tokens are never written under another holder's lock.
+import os from 'node:os';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import {
@@ -62,20 +63,35 @@ export type ClaudeAccountMetadata = { accountUuid?: string; deviceId?: string };
 
 const CLAUDE_USER_ID_PATTERN = /^[0-9a-f]{64}$/;
 
+const readGlobalConfig = async (filePath: string): Promise<ClaudeAccountMetadata | undefined> => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(filePath, 'utf8'));
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined;
+  const record = parsed as Json;
+  const account = record.oauthAccount;
+  const accountUuid = typeof account === 'object' && account !== null ? (account as Json).accountUuid : undefined;
+  const deviceId = typeof record.userID === 'string' && CLAUDE_USER_ID_PATTERN.test(record.userID) ? record.userID : undefined;
+  if (typeof accountUuid === 'string' && accountUuid !== '') return { accountUuid, ...(deviceId === undefined ? {} : { deviceId }) };
+  return undefined;
+};
+
 export const readClaudeAccountMetadata = async (homeDir: string): Promise<ClaudeAccountMetadata> => {
   for (const fileName of CLAUDE_GLOBAL_CONFIG_FILES) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(await readFile(path.join(homeDir, fileName), 'utf8'));
-    } catch {
-      continue;
-    }
-    if (typeof parsed !== 'object' || parsed === null) continue;
-    const record = parsed as Json;
-    const account = record.oauthAccount;
-    const accountUuid = typeof account === 'object' && account !== null ? (account as Json).accountUuid : undefined;
-    const deviceId = typeof record.userID === 'string' && CLAUDE_USER_ID_PATTERN.test(record.userID) ? record.userID : undefined;
-    if (typeof accountUuid === 'string' && accountUuid !== '') return { accountUuid, ...(deviceId === undefined ? {} : { deviceId }) };
+    const metadata = await readGlobalConfig(path.join(homeDir, fileName));
+    if (metadata !== undefined) return metadata;
+  }
+  // Mirrors references/claude-code v2.1.299 mods/telemetry/hooks/context/identity/global-config-path.ts:
+  // the official global config lives under `<CLAUDE_CONFIG_DIR || home>/.claude.json`, so a login
+  // without CLAUDE_CONFIG_DIR records oauthAccount in the user's home, not inside the default
+  // `~/.claude` directory. Only that default home may fall back here: a CLAUDE_CONFIG_DIR home must
+  // never pair its token with another account's identity.
+  if (path.resolve(homeDir) === path.join(os.homedir(), '.claude')) {
+    const metadata = await readGlobalConfig(path.join(os.homedir(), '.claude.json'));
+    if (metadata !== undefined) return metadata;
   }
   return {};
 };
