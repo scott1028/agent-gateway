@@ -1,6 +1,6 @@
 {
   "name": "agent-gateway",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Local OpenAI-compatible proxy that forwards to the Codex ChatGPT backend",
   "type": "module",
