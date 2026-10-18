@@ -1,16 +1,31 @@
-// Project-owned release policy; no upstream behavior is copied from references/**.
+// Project-owned release policy and asset naming; references/** does not define gateway releases.
 import { describe, expect, it } from 'vitest';
-import { getReleaseMetadata } from '../../scripts/release/utils.js';
+import { getReleaseAssetNames, getReleaseMetadata } from '../../scripts/release/utils.js';
 
-const input = {
-  eventName: 'workflow_dispatch',
-  ref: 'refs/heads/master',
-  defaultBranch: 'master',
-  version: '0.1.0',
-  sha: '36b38c242c0668833628742f94870638afae35d5',
-};
+describe('release asset names', () => {
+  it('requires all six binaries and both Linux AppImages for the same version and commit', () => {
+    expect(getReleaseAssetNames('v0.1.0-36b38c2').sort()).toEqual([
+      'agent-gateway-0.1.0-36b38c2-darwin-arm64',
+      'agent-gateway-0.1.0-36b38c2-darwin-x64',
+      'agent-gateway-0.1.0-36b38c2-linux-arm64',
+      'agent-gateway-0.1.0-36b38c2-linux-arm64.AppImage',
+      'agent-gateway-0.1.0-36b38c2-linux-x64',
+      'agent-gateway-0.1.0-36b38c2-linux-x64.AppImage',
+      'agent-gateway-0.1.0-36b38c2-win32-arm64.exe',
+      'agent-gateway-0.1.0-36b38c2-win32-x64.exe',
+    ]);
+  });
+});
 
 describe('release metadata', () => {
+  const input = {
+    eventName: 'workflow_dispatch',
+    ref: 'refs/heads/master',
+    defaultBranch: 'master',
+    version: '0.1.0',
+    sha: '36b38c242c0668833628742f94870638afae35d5',
+  };
+
   it('allows a manual release without a version change and includes the source hash', () => {
     expect(getReleaseMetadata(input)).toEqual({
       shouldRelease: true,

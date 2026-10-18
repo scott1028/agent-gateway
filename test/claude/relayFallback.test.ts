@@ -98,11 +98,11 @@ describe('Claude relay fallback', () => {
 
   it.each([true, false])('records only stopped blocks from the target, then retains those signatures (stream=%s)', async (stream) => {
     const gateway = await setup('degrade');
-    gateway.setSse(readFixture('claude-relay-fallback.tdd.sse'));
+    gateway.setSse(readFixture('claude-relay-fallback.sse'));
     const response = await gateway.post({ ...body(), stream });
     const text = await response.text();
     expect(response.status).toBe(200);
-    if (stream) expect(text).toBe(readFixture('claude-relay-fallback.tdd.sse'));
+    if (stream) expect(text).toBe(readFixture('claude-relay-fallback.sse'));
     const next = body();
     (next.messages as Json[]).push({ role: 'assistant', content: [
       { type: 'thinking', thinking: 'old', signature: 'foreign-signature' },
@@ -178,7 +178,7 @@ describe('Claude relay fallback', () => {
 
   it('filters count history using the same recorded-target thinking policy without adding cache markers', async () => {
     const gateway = await setup('degrade');
-    gateway.setSse(readFixture('claude-relay-fallback.tdd.sse'));
+    gateway.setSse(readFixture('claude-relay-fallback.sse'));
     await (await gateway.post()).text();
     const request = body();
     request.messages = [{ role: 'assistant', content: [

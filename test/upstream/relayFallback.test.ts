@@ -39,7 +39,7 @@ const setup = async (mode: 'reject' | 'degrade', options: { count?: number; chan
     const credentials = { accessToken: 'synthetic-credential', accountId: options.noAccountId ? undefined : `synthetic-account-${index}`, isFedramp: false };
     const client = createCodexClient({ auth: { getCredentials: async () => ({ ...credentials, accountId: options.changed && reads++ === 0 ? 'synthetic-client-account' : credentials.accountId }), recoverUnauthorized: async () => credentials }, config: { ...getConfig({}, ['/synthetic']), baseUrl: `${upstream}/backend-api/codex` }, authPath: '/synthetic/auth.json', fetchFn: async (_url, init) => {
       calls.push({ body: JSON.parse(String(init?.body)) as Json, headers: init?.headers as Record<string, string> });
-      return new Response(readFixture('codex-relay-fallback.tdd.sse'), { headers: { 'content-type': 'text/event-stream' } });
+      return new Response(readFixture('codex-relay-fallback.sse'), { headers: { 'content-type': 'text/event-stream' } });
     } });
     accounts.push({ provider: 'codex', alias: `codex${index + 1}`, homePath: '/synthetic', client, catalog: createModelCatalog({ getModels: async () => [{ slug: 'gpt-test', use_responses_lite: options.lite === true }] }) });
   }
@@ -157,7 +157,7 @@ describe('Codex relay fallback', () => {
     const gateway = await setup('degrade');
     const response = await gateway.post();
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe(readFixture('codex-relay-fallback.tdd.sse'));
+    expect(await response.text()).toBe(readFixture('codex-relay-fallback.sse'));
     expect(gateway.calls[0]?.headers['chatgpt-account-id']).toBe('synthetic-account-0');
   });
 });

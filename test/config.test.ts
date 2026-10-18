@@ -95,6 +95,13 @@ describe('parseCliArgs', () => {
     expect(parseCliArgs([]).host).toBeUndefined();
   });
 
+  it('reads --relay-fallback in both forms and keeps degrade as the absent-option default', () => {
+    expect(parseCliArgs(['--relay-fallback=degrade'])).toMatchObject({ relayFallback: 'degrade' });
+    expect(parseCliArgs(['--relay-fallback', 'reject'])).toMatchObject({ relayFallback: 'reject' });
+    expect(parseCliArgs([]).relayFallback ?? 'degrade').toBe('degrade');
+    expect(() => parseCliArgs(['--relay-fallback=other'])).toThrow('Invalid --relay-fallback');
+  });
+
   it('has no CLI flag for the API key, so it never shows up in the process list', () => {
     expect(() => parseCliArgs(['--api-key', 'secret'])).toThrow("Unknown option '--api-key'");
   });

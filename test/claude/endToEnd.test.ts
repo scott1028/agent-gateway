@@ -179,7 +179,7 @@ describe('/v1/responses', () => {
     expect(addedParts.every((event) => ((event.part as Json).text as string) === '')).toBe(true);
     expect(text).not.toContain('[object Object]');
     // K_o tail shape (native 2.1.299 @218995076): billing block uncached, interactive CLI prefix
-    // cached; "weather?" gives fingerprint 205. Final CCH vectors are in signing.tdd.test.ts.
+    // cached; "weather?" gives fingerprint 205. Final CCH vectors are in signing.test.ts.
     expect(lastUpstreamRequest().system).toEqual([
       { type: 'text', text: expect.stringMatching(/^x-anthropic-billing-header: cc_version=2\.1\.299\.205; cc_entrypoint=cli; cch=[0-9a-f]{5};$/) },
       { type: 'text', text: "You are Claude Code, Anthropic's official CLI for Claude.", cache_control: { type: 'ephemeral' } },

@@ -124,6 +124,6 @@ npm start -- --claude-home "$PWD/.tmp" --model claude1/claude-sonnet-5
 
 本次不需要重新登入；補齊 account metadata 是臨時測試準備，不是 gateway 新增了自動 profile bootstrap 功能。上述測試確實呼叫上游並消耗少量推論額度。
 
-新增測試：`test/claude/signing.tdd.test.ts`、`test/claude/protocol.tdd.test.ts`、`test/claude/systemPlacement.tdd.test.ts`。更新既有測試：`test/claude/normalizeRequest.test.ts`、`test/claude/endToEnd.test.ts`。
+新增測試：`test/claude/signing.test.ts`、`test/claude/protocol.test.ts`、`test/claude/systemPlacement.test.ts`。更新既有測試：`test/claude/normalizeRequest.test.ts`、`test/claude/endToEnd.test.ts`。
 
 後續審查確認原本未追蹤的 attribution／Stainless 測試補足 30 項協定邊界，正式納入為 `test/claude/attribution.test.ts`（23 項）與 `test/claude/stainlessHeaders.test.ts`（7 項）。調整檔名、來源註解及快取案例標題，斷言保持不變。上述 493 項驗證原本就包含這 30 項；納入後，Git 追蹤的測試集合可重現完整數量。

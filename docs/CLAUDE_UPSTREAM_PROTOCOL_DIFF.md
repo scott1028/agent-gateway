@@ -67,7 +67,7 @@ agent-gateway 的 Claude 路徑照抄官方 Claude Code 推論呼叫的**手勢*
 `x-anthropic-billing-header: cc_version=2.1.299.<fingerprint>; cc_entrypoint=<effective>; cch=00000;`
 
 - 指紋：取第一則 pre-normalization user 候選的文字（字串內容整段；陣列只取第一個 text 塊；圖片無文字或 tool_result 得空字串**且不再往後找**；system/developer 不是候選；在相連 user 合併**之前**算），UTF-16 第 4/7/20 碼元（缺→`0`），`sha256("59cf53e54c78" + 碼元 + "2.1.299")` 前 3 個 hex。
-- `cch=00000` 是 builder 的 **placeholder**，送出前依 CLIProxyAPI `claude_signing.go` 計算 final-body XXH64 checksum。先前「沒有 JS 改寫所以是固定值」的結論錯誤：native code 區有相同 seed，不能只從嵌入 JS 推論 wire 值。詳見重新比對報告與 `signing.tdd.test.ts`。
+- `cch=00000` 是 builder 的 **placeholder**，送出前依 CLIProxyAPI `claude_signing.go` 計算 final-body XXH64 checksum。先前「沒有 JS 改寫所以是固定值」的結論錯誤：native code 區有相同 seed，不能只從嵌入 JS 推論 wire 值。詳見重新比對報告與 `signing.test.ts`。
 - Opt-out 只認 `CLAUDE_CODE_ATTRIBUTION_HEADER` 依 `ys`（trim/lower `0/false/no/off`）；未設/空/其他值都保持開啟。
 - lifecycle/workload/subagent/prev-req/prompt-id/turn/index/gateway 等可選欄位**全部省略**（用戶選 BASIC）；不發明 ID。
 - 本次 Sonnet 5 實測接受已簽 CCH 的 billing 區塊與 headers，文字／工具回合成功（§11）。未做單變因對照，故不斷言先前「extra usage」錯誤的唯一成因。

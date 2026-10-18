@@ -4,7 +4,7 @@
 // Im at 222259800. references/claude-code @9b4f0d6 plugin code is not the CLI transport.
 // Fingerprint expectations are literal vectors precomputed from the native algorithm, not
 // re-derived through the production helper.
-// This builder emits cch=00000; signing.tdd.test.ts covers the final request checksum.
+// This builder emits cch=00000; signing.test.ts covers the final request checksum.
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getClaudeBillingHeader, getClaudeEffectiveEntrypoint } from '../../src/claude/attribution.js';
 import type { Json } from '../../src/types.js';
