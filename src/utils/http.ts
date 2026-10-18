@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Account } from '../accounts.js';
 import { FORWARDED_RESPONSE_HEADER_PREFIX, FORWARDED_RESPONSE_HEADERS } from '../constants.js';
 import { createProxyError } from '../errors.js';
+import type { ReasoningStore } from './reasoningStore.js';
 import type { ResponseStore } from '../responses/responseStore.js';
 import type { DebugLevel, Json } from '../types.js';
 
@@ -11,12 +12,14 @@ export type ProxyDeps = {
   defaultModelId?: string;
   debugLevel?: DebugLevel;
   apiKey?: string;
+  relayFallback?: 'reject' | 'degrade';
+  reasoningStore?: ReasoningStore;
   now?: () => number;
   // Test seam; production uses CODEX_WEBSOCKET_CONNECT_TIMEOUT_MS.
   codexWebSocketConnectTimeoutMs?: number;
 };
 
-export type RequestLog = { model?: string; upstreamRequestId?: string; ignoredKeys?: string[] };
+export type RequestLog = { degraded?: string; model?: string; upstreamRequestId?: string; ignoredKeys?: string[] };
 
 export type HandlerContext = {
   body: Json;

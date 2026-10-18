@@ -61,6 +61,8 @@ export type AssembleClaudeRequestInput = {
   // JSON envelope (nUe at binary offset 218996645). Omitted when the caller has no session.
   session?: { sessionId: string; accountUuid: string; deviceId?: string };
   fieldNames?: ClaudeRequestFieldNames;
+  extraBody?: Json;
+  extraBetas?: string[];
 };
 
 export type PreparedClaudeRequest = {
@@ -234,5 +236,7 @@ export const assembleClaudeRequest = (input: AssembleClaudeRequestInput): Prepar
   }
   if (Object.keys(outputConfig).length > 0) request.output_config = outputConfig;
 
+  if (input.extraBody !== undefined) Object.assign(request, input.extraBody);
+  if (input.extraBetas !== undefined) betas.push(...input.extraBetas.filter((beta) => !betas.includes(beta)));
   return { request, betas, thinking, maxTokens };
 };

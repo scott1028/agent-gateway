@@ -24,6 +24,7 @@ export const MAX_BODY_BYTES = 50 * 1024 * 1024;
 export const RESPONSE_STORE_MAX_ENTRIES = 1000;
 // Project-owned cap for the Claude Code session -> home bindings that count_tokens relies on.
 export const CLAUDE_RELAY_SESSION_MAX_ENTRIES = 1000;
+export const RELAY_REASONING_MAX_ENTRIES = 1000;
 
 // Verified by scripts/poc.ts: the backend accepts these fields and rejects most others
 // (temperature, top_p, metadata, user, truncation, safety_identifier, top_logprobs, ...).

@@ -221,6 +221,8 @@ TTL：`z4` 只在 ttl 有值時才送 `ttl`，而主推論只把 `ttl:"1h"` 傳�
 
 ## 13. 原生轉送路徑（`POST /v1/messages` 與 `count_tokens`，只給官方 Claude Code）
 
+本節既有原樣轉送與 400 規則以預設 `--relay-fallback=reject` 為準；選擇 `degrade` 的例外見 §13.5。
+
 這條路徑上游看到的是 **client 自己產生的官方請求**：body 逐 byte 相同，headers 只換掉 `Authorization`（`host` 和 `content-length` 是這一段連線本身的值，見 §13.2）。gateway 不組請求，所以 §3.3、§6、§7、§8 的請求成形規則都不適用於這條路徑。
 
 ### 13.1 基線與證據
@@ -281,6 +283,22 @@ TTL：`z4` 只在 ttl 有值時才送 `ttl`，而主推論只把 `ttl:"1h"` 傳�
   - count_tokens：綁定的 session 逐 byte 轉送、只換 token；alias 只能指向綁定的 home；沒綁定、別的 session、沒帶 session header、沒有 OAuth beta、不是官方 client、`/v1/messages` 被拒的 session，都回 400 且沒有上游請求；綁定後 home 換帳號（包括 401 期間換）都回 400；gateway key 沿用 403 規則；LRU 淘汰最久沒用到的 session。
 - [v] 真實上游端對端（使用者手動執行，2026-10-18）：`CLAUDE_CONFIG_DIR=~/.claude-personal ANTHROPIC_BASE_URL=http://127.0.0.1:8765 _CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1 claude -p "say ok"` 回 `ok`。
 - [ ] 未驗證：TLS 指紋、互動模式（entrypoint `cli`）、helper 請求（例如 title、quota）、count_tokens 的實際擷取（目前只有靜態查證，見 §13.1）、其他路徑（目前回 404）。
+
+### 13.5 可選 relay fallback（`--relay-fallback=degrade`）
+
+已通過官方 client 偵測的請求，若缺 `cch`、OAuth beta、帳號不符、alias 不符、count_tokens session 未綁定，或送出前帳號已換，可改走 `degradeMessages.ts` / `degradeRelay.ts`；預設 `reject` 完全不變。非物件 JSON、非路徑 target、gateway key 的錯誤不降轉。目標依 alias 或第一個 Claude home 選擇。
+
+這是 **gateway-built**，不是官方 client 的原樣請求：用既有組裝層、gateway 自己釘住的 UA/headers、目標 home metadata/token，重簽 `cch`。移除 client billing 和下一塊精確前綴；native 2.1.302 的完整集合為：`nl` @238379007（CLI）、`zd` @238379070（CLI running within SDK）、`qd` @238379170（Claude agent built on SDK）；`I_=[nl,zd,qd]` @238379238、`AKn` @238379267 使用 Set.has 完全比對。
+
+保留原位置的 `role:"system"`、deferred tools、`tool_reference`、其他 blocks、`output_config` 所有鍵與 `safeguards`；client cache markers 拿掉後套 gateway 標記；metadata 和 thinking 設定重建。未知頂層欄位、`context_management`、`diagnostics` 丟掉並記 `ignored=`；`degraded=` 記降轉原因。工具延遲載入／reference 加 `advanced-tool-use-2025-11-20`，safeguards 加 `dangerous-tool-use-2026-09-03`。2b 的嚴格規則不變。
+
+Session header 存在時也用作 Messages 重建的 metadata session id；否則用 2b seed。只保留此 server 已在目標 alias 降轉回應記錄的 thinking 最後 signature／redacted data（SHA256 LRU 1000 筆，重啟清空）；過濾後空掉的 assistant 整則省略，不造假文字。stream 原樣回傳，在每個 `content_block_stop` 記錄；nonstream 用既有 collector。count_tokens 另用官方 count 形狀送 `/v1/messages/count_tokens?beta=true`，status/body 照轉。
+
+count body 僅含 slug `model`、同一 normalizer 清理的 `messages`、非空 `tools`，以及 client 有帶才照轉的 `thinking`。不經 Messages 組裝，不帶 top-level system／billing／metadata／max_tokens／stream／safeguards／output_config／context_management／diagnostics，也不增加 generation cache markers。UA、token、session header 仍由 gateway／目標帳號提供。依據 native 2.1.302 `DFe` @243429208 與 references/CLIProxyAPI `5fc580b` 的 `claude_executor_tokens.go:174-178,206-228`；後者記錄 metadata 會被真實上游拒絕。
+
+count beta：`DFe` 對 `kte(model)` 套 `lUt` @236024090，`TMe` @236023941 取 header 字串，SDK countTokens @238319444 再加 `token-counting-2024-11-01`（字串 @238319639）。四個 allowlist 值是 `rUt`→`claude-code-20250219` @236021078、`Fdn`→`interleaved-thinking-2025-05-14` @236021145、`kMe`→`context-management-2025-06-27` @236021254、`Ake`→OAuth @236021122（`Ep="oauth-2025-04-20"` @234107965）。gateway 保留模型條件：非 Haiku 才加 CLI；interleaved 與 context-management 依第一方模型能力，加 OAuth 與 token-counting。不因 deferred tools 或 tool_reference 加 advanced-tool-use：native 的 `sLo` 不在 lUt；也不加 safeguards／effort 等 generation beta。
+
+相似度沿用自組 Claude **65** 基準，不是原樣轉送的 100。沒有新真實上游證據：本次只跑 mock/wire 測試、唯讀靜態分析，使用者要求不連真實上游。尤其 R1（未完成 tool turn 刪舊 thinking 可能造成 ordering/signature 400）、前綴綁定與 count_tokens 重建接受度仍未驗證。
 
 ## 14. 降轉路徑（`POST /v1/messages`，其他 Anthropic client）
 

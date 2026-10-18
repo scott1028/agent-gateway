@@ -6,10 +6,11 @@
 // model-provider-info/src/lib.rs.
 import { type IncomingMessage, type ServerResponse, STATUS_CODES } from 'node:http';
 import type { Socket } from 'node:net';
-import type { Account, CodexAccount } from '../accounts.js';
+import { resolveAccount, type Account, type CodexAccount } from '../accounts.js';
 import { CODEX_REJECTED_UPGRADE_BODY_BYTES, CODEX_WEBSOCKET_CONNECT_TIMEOUT_MS, GATEWAY_API_KEY_HEADER } from '../constants.js';
 import { createProxyError, isProxyError, type ProxyError, toOpenAiErrorBody } from '../errors.js';
-import type { Credentials } from '../types.js';
+import { degradeCodexResponses } from './degradeCodex.js';
+import type { Credentials, Json } from '../types.js';
 import type { ProxyDeps, RequestLog } from '../utils/http.js';
 import {
   createRawRequest,
@@ -30,6 +31,7 @@ type CodexRelayTarget = {
   accountId: string;
   // Raw request target below the backend base, e.g. /models?client_version=0.163.0.
   path: string;
+  isDegraded?: boolean;
 };
 
 // The built-in openai provider cannot carry extra headers (model-provider-info/src/lib.rs:699-733:
@@ -92,6 +94,18 @@ const getCodexRelayTarget = async (accounts: Account[], rawHeaders: string[], ur
 // The token and its account id come from the same credentials, so checking them right before each
 // send (first and after 401 recovery) means a relogin of the home never carries this request.
 const verifyCodexRelayAccount = (target: CodexRelayTarget, credentials: Credentials): void => {
+  if (target.isDegraded) {
+    // A degraded send replaces the client's chatgpt-account-id with the home's own; with none there
+    // is nothing to send, so reject before the request goes out.
+    if (!credentials.accountId) {
+      throw createProxyError({
+        status: 400,
+        code: 'account_id_required',
+        message: `Gateway Codex home ${target.account.alias} has no ChatGPT account id in its credentials, so the degraded relay request was not sent. Log that home in to a ChatGPT account and retry.`,
+      });
+    }
+    return;
+  }
   if (credentials.accountId === target.accountId) return;
   throw createProxyError({
     status: 400,
@@ -131,16 +145,17 @@ const sendWithCodexRelayAuth = async <T>(
   }
 };
 
-export const relayCodexHttp = async (input: {
+type CodexHttpInput = {
   req: IncomingMessage;
   res: ServerResponse;
   rawBody: Buffer;
   signal: AbortSignal;
   deps: ProxyDeps;
   log: RequestLog;
-}): Promise<void> => {
-  const { req, res, rawBody: body, signal, deps, log } = input;
-  const target = await getCodexRelayTarget(deps.accounts, req.rawHeaders, req.url ?? '', signal);
+};
+
+const sendCodexHttp = async (input: CodexHttpInput, target: CodexRelayTarget): Promise<void> => {
+  const { req, res, rawBody: body, signal, log } = input;
   log.model = target.account.alias;
   const headers = filterRawHeaders(req.rawHeaders, RELAY_DROPPED_REQUEST_HEADERS);
   // A body-less GET must not gain a content-length the client never sent.
@@ -160,6 +175,8 @@ export const relayCodexHttp = async (input: {
           new Map([
             ['host', baseUrl.host],
             ['authorization', `Bearer ${credentials.accessToken}`],
+            // verifyCodexRelayAccount has already rejected a degraded send without an account id.
+            ...(target.isDegraded ? [['chatgpt-account-id', credentials.accountId!] as [string, string]] : []),
             ...(hasContentLength ? [['content-length', String(body.length)] as [string, string]] : []),
           ]),
         ),
@@ -171,6 +188,46 @@ export const relayCodexHttp = async (input: {
   );
   log.upstreamRequestId = getRawHeader(upstream.rawHeaders, 'x-request-id');
   await pipeRawResponse(res, upstream);
+};
+
+export const relayCodexHttp = async (input: CodexHttpInput): Promise<void> => {
+  const { req, res, rawBody, signal, deps, log } = input;
+  try {
+    const target = await getCodexRelayTarget(deps.accounts, req.rawHeaders, req.url ?? '', signal);
+    await sendCodexHttp(input, target);
+  } catch (error) {
+    if (deps.relayFallback !== 'degrade' || res.headersSent || signal.aborted || !isProxyError(error) || error.status !== 400 || error.code !== 'account_mismatch') throw error;
+    const reason = log.model ? 'account_changed' : 'account_mismatch';
+    const path = (req.url ?? '').slice(CODEX_RELAY_PATH_PREFIX.length - 1);
+    if (req.method === 'POST' && path.split('?')[0] === '/responses') {
+      let body: Json = {};
+      if (rawBody.length > 0) {
+        let parsed: unknown;
+        try { parsed = JSON.parse(rawBody.toString('utf8')); }
+        catch { throw createProxyError({ status: 400, message: 'Request body must be valid JSON' }); }
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) throw createProxyError({ status: 400, message: 'Request body must be a JSON object' });
+        body = parsed as Json;
+      }
+      log.degraded = reason;
+      await degradeCodexResponses({ body, res, signal, deps, log });
+      return;
+    }
+    // Non-Responses endpoints keep the official client's own headers/body; only credentials change.
+    // The body is forwarded as sent; it is parsed only to pick the account when it names a model.
+    log.degraded = reason;
+    let model: unknown;
+    if (rawBody.length > 0) {
+      try {
+        const parsed: unknown = JSON.parse(rawBody.toString('utf8'));
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) model = (parsed as Json).model;
+      } catch { /* not JSON: forwarded as-is with the first Codex account */ }
+    }
+    const account = model === undefined
+      ? deps.accounts.find((candidate): candidate is CodexAccount => candidate.provider === 'codex')
+      : resolveAccount(deps.accounts, model).account;
+    if (account === undefined || account.provider !== 'codex') throw createProxyError({ status: 400, message: 'No Codex account configured for fallback' });
+    await sendCodexHttp(input, { account, accountId: '', path, isDegraded: true });
+  }
 };
 
 // The upgrade mechanism itself (connection, upgrade, sec-websocket-*) must reach upstream, so only
@@ -332,7 +389,14 @@ export const relayCodexUpgrade = async (input: {
     // refresh, say); the refresh itself is never aborted, so it can still save the rotated token.
     if (outcome === undefined) void outcomePromise.then(destroyOutcome, () => undefined);
     else destroyOutcome(outcome);
-    if (!lifetime.signal.aborted) throw error;
+    if (!lifetime.signal.aborted) {
+      if (deps.relayFallback === 'degrade' && isProxyError(error) && error.status === 400 && error.code === 'account_mismatch') {
+        log.degraded = log.model ? 'account_changed' : 'account_mismatch';
+        // references/codex core/src/client.rs:1622/2053 switches this session to HTTP on 426.
+        return rejectCodexUpgrade(socket, createProxyError({ status: 426, message: 'Account changed; retry over HTTP for gateway fallback.' }));
+      }
+      throw error;
+    }
     if (isTimedOut) {
       throw createProxyError({ status: 504, code: 'upstream_timeout', message: 'The upstream WebSocket handshake did not finish in time' });
     }

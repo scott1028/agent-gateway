@@ -10,6 +10,7 @@ import { handleResponses } from './responses/handleResponses.js';
 import { createResponseStore, type ResponseStore } from './responses/responseStore.js';
 import { CODEX_RELAY_PATH_PREFIX, getCodexRelayApiKeyError, rejectCodexUpgrade, relayCodexHttp, relayCodexUpgrade } from './upstream/codexRelay.js';
 import { getDebugPrefix, getDebugSeparator, getFormattedBody, getMaskedAuthorization } from './utils/debugFetch.js';
+import { createReasoningStore } from './utils/reasoningStore.js';
 import { getRequestHeader, type ProxyDeps, readJsonBody, readRawBody, type RequestLog, sendJson } from './utils/http.js';
 
 // Native Claude Code relay (src/claude/relayMessages.ts) or, for other clients, the downgrade
@@ -50,6 +51,7 @@ const logRequest = (req: IncomingMessage, statusCode: number, startedAtMs: numbe
     `${Date.now() - startedAtMs}ms`,
     log.model ? `model=${log.model}` : '',
     log.upstreamRequestId ? `upstream=${log.upstreamRequestId}` : '',
+    log.degraded ? `degraded=${log.degraded}` : '',
     log.ignoredKeys?.length ? `ignored=${log.ignoredKeys.join(',')}` : '',
   ];
   console.log(fields.filter((field) => field !== '').join(' '));
@@ -242,6 +244,7 @@ const handleUpgrade = async (req: IncomingMessage, socket: Socket, head: Buffer,
 // One previous_response_id store and one Claude Code session binding store per server, so each
 // server instance keeps its own.
 export const createProxyServer = (deps: ProxyDeps): Server => {
+  deps = { ...deps, reasoningStore: createReasoningStore() };
   const responseStore = createResponseStore();
   const claudeSessions = createClaudeRelaySessions();
   const server = createServer((req, res) => {

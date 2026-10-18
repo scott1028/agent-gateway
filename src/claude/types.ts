@@ -63,3 +63,11 @@ export type ClaudeRequest = Json & {
   messages: Json[];
   max_tokens: number;
 };
+
+// Native 2.1.302 DFe @243429208; count_tokens has no generation-only fields.
+export type ClaudeCountTokensRequest = {
+  model: string;
+  messages: Json[];
+  tools?: Json[];
+  thinking?: unknown;
+};

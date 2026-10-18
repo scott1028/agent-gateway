@@ -1,0 +1,12 @@
+event: response.output_item.added
+data: {"type":"response.output_item.added","item":{"type":"reasoning","encrypted_content":"synthetic-unfinished"}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"type":"reasoning","encrypted_content":"synthetic-encrypted"}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"type":"message","encrypted_content":"synthetic-not-reasoning"}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"synthetic-response","status":"completed","output":[]}}
+

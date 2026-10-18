@@ -167,6 +167,29 @@ POST /v1/responses 200 812ms model=codex1/gpt-5.6
 - `--context-length <n>`：只在 `/v1/models` 每筆 model 標示 `context_length`（預設 `250000`），讓 agent CLI 讀 context window；**不會**限制實際 request。
 - `--host <addr>`：listen 位址（預設 `127.0.0.1`，優先於 `AGENT_GATEWAY_HOST`），見「對外開放」。
 - `--auto`：自動使用 `$HOME` 下所有已登入的 Codex／Claude home，見下一節。
+- `--relay-fallback=reject|degrade`：官方 relay 的檢查失敗策略，預設 `reject`，不新增環境變數，見「Relay 檢查失敗時降轉」。
+
+## Relay 檢查失敗時降轉（`--relay-fallback`）
+
+預設 `--relay-fallback=reject` 完全維持原有拒絕行為。想在帳號切換後繼續對話，可在啟動 gateway 時選擇：
+
+```bash
+npm start -- --codex-home ~/.agent-gateway --claude-home ~/.agent-gateway-claude --relay-fallback=degrade
+```
+
+**不用重開 client CLI**。這不是補成官方 relay，而是像剛開啟的第三方 client：由 gateway 重組請求，使用 gateway 自己的 headers、釘住的 UA、Claude Messages 的 `cch` 和目標 home 的帳號／token（count_tokens 使用下述專用形狀，沒有 billing/cch）。相似度沿用自組路徑的 Claude **65**／Codex **82.35** 基準，**不是 100**；這不是本次重新量測的分數。
+
+- 可降轉：Claude 缺 `cch`／OAuth beta、帳號不符、alias 不符、count_tokens session 未綁定、送出前 home 換帳號；Codex 入口或送出前帳號不符。log 會標示 `degraded=<reason>`，丟掉的欄位記在 `ignored=`。
+- 不降轉：非路徑形式或不在 relay 前綴下的 request target、gateway API key 的 401／403、body 不是 JSON 物件的 Claude relay 與 Codex `POST /responses`（Codex 其他 endpoint 的 body 原樣轉送，不需要是 JSON）。非官方 Anthropic client 的 2b 嚴格驗證不變。
+- 目標帳號由 model alias 選擇；無 alias 時用該 provider 第一個 home，不會跨 provider。該 provider 沒有帳號時回 400；無效 alias/model 與無法組裝的請求仍依既有驗證回錯誤。
+- Claude 官方內容寬鬆保留：原位置的 `role:"system"`、deferred tools、`tool_reference`、未知 message blocks 和 `output_config`；移除 client billing／精確 SDK/CLI 前綴，清掉 client cache markers、metadata 與 thinking 設定後由 gateway 重建。`context_management`、`diagnostics` 與其他未知頂層欄位丟掉並記錄。`safeguards` 照轉，加 `dangerous-tool-use-2026-09-03`；deferred tools／tool references 加 `advanced-tool-use-2025-11-20`。
+- Claude `x-claude-code-session-id` 若存在，header 和 Messages 新的 `metadata.user_id.session_id` 都沿用它；沒有時沿用 2b 的 alias/model/開頭訊息 seed。
+- 降轉的 count_tokens 只送上游 slug `model`、清理過的 `messages`、非空的 `tools`，以及 client 原有的 `thinking`（沒帶就不補）。不經 Messages 組裝，不帶 top-level `system`、billing/cch、metadata、max_tokens、stream、safeguards、output_config、context_management 或 diagnostics。仍用 gateway UA、目標 token 與 session header 送 `/v1/messages/count_tokens?beta=true`，status/body 照轉。
+- count beta 僅使用 native count allowlist 中依模型啟用的 `claude-code-20250219`（非 Haiku）、`interleaved-thinking-2025-05-14`、`context-management-2025-06-27`（後兩者依模型能力），加 OAuth 和 SDK 的 `token-counting-2024-11-01`。即使有 deferred tools／tool_reference，也不送 `advanced-tool-use`，因 native count allowlist 不包含它；safeguards beta 等 Messages 專用 beta 同樣不送。
+- 舊帳號推理狀態丟掉。只保留 gateway 在降轉回應裡記下、屬於目標 alias 的 thinking 最後簽章、`redacted_thinking.data`、Codex reasoning 的 `encrypted_content`。只存 SHA256，記憶體 LRU 上限 1000 筆；淘汰或 **gateway 重啟後記錄重置**，不寫進 home 的 `claude-state/`。
+- Codex WS 帳號不符時回 **426**，不 upgrade。依官方 Codex `0d58012` 的 fallback，**這個 session 之後只走 HTTP**（每次完整重送，沒有 WS 增量）。HTTP `/responses` 經既有 normalize/Lite，用 gateway headers；其他 endpoint（如 `GET /models`）仍原樣轉送 client UA/body，只換目標 token 和 `chatgpt-account-id`（另有正常的 hop framing/host 調整）。
+- **Codex WS alias 限制**：握手看不到 model；若 client 帳號已對上某 home，但 frame 的 model alias 指向另一 home，gateway 不解析 frame，也不會因此觸發降轉。model 會由上游拒絕；HTTP 才能依 alias 選帳號。
+- **R1 尚未驗證**：在未完成的 tool 回合切換帳號並移除舊 thinking，可能觸發上游 ordering/signature 400。mock 測試不能證明上游接受；本次未連真實上游。
 
 ## 自動掃描 home（`--auto`）
 
@@ -277,6 +300,8 @@ Claude 的 thinking 區塊帶簽章，工具回合續接時必須原樣送回，
 官方 Claude Code 也可以把 `ANTHROPIC_BASE_URL` 指向 gateway。這條路徑**不做格式轉換**：client 自己組好的官方請求原樣轉給 `https://api.anthropic.com`，gateway 只把 `Authorization` 換成 gateway Claude home 的 OAuth token。不符合下面判定的請求不會被拒絕，而是走降轉（見「其他 Anthropic client（降轉）」）。
 
 先決條件：
+
+以下同帳號原樣轉送條件與 400 說明以預設 `reject` 為準；選擇 `degrade` 時，符合官方 client 偵測的請求可改走上節降轉。
 
 1. Claude Code 已用 OAuth 登入（執行 `claude` 後輸入 `/login`）。不要用 `ANTHROPIC_AUTH_TOKEN` 或 `ANTHROPIC_API_KEY`。
 2. client 登入的帳號，要和某個 gateway Claude home **是同一個帳號**。gateway 拿請求 `metadata.user_id` 裡的 `account_uuid`，去比對每個 home 的 `oauthAccount.accountUuid`；對上的 home 就是這次用的帳號。model alias 不參與帳號選擇。
@@ -410,6 +435,8 @@ openai_base_url = "http://127.0.0.1:8765/backend-api/codex"
 ```bash
 codex -c 'openai_base_url="http://127.0.0.1:8765/backend-api/codex"' "your prompt"
 ```
+
+以下原樣轉送條件與狀態碼以預設 `reject` 為準；`degrade` 的帳號不符分支見「Relay 檢查失敗時降轉」。
 
 先決條件與限制：
 

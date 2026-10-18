@@ -83,6 +83,8 @@ CLAUDE_CONFIG_DIR=~/.agent-gateway-claude claude     # type /login once inside
 
 `--auto` uses the homes your everyday `codex` CLI uses. While the gateway runs, do not run `codex` on the same home, or one side gets logged out. See "自動掃描 home（`--auto`）" in the [user guide](docs/GUIDE.md).
 
+Optional `--relay-fallback=degrade` (default: `reject`) rebuilds failed official relay account/shape checks with the gateway's own assembly, without restarting the CLI. Similarity baselines are Claude 65 / Codex 82.35, not 100. Reasoning records reset on gateway restart; after Codex receives 426, that session uses HTTP only. See the [guide](docs/GUIDE.md#relay-檢查失敗時降轉--relay-fallback) for the WS alias limitation and unverified R1 risk.
+
 For checksum verification, first-run prompts on macOS/Windows, AppImage usage, environment variables, and every option, see the [user guide](docs/GUIDE.md) (in Chinese). Upgrading from the old codex-proxy? Read the migration steps in the guide first.
 
 ## Connect your tool

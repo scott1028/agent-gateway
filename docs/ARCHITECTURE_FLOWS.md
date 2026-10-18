@@ -37,6 +37,24 @@ Agent client                       agent-gateway (src/)                        �
 
 ## 2. 路由判斷
 
+原樣轉送的拒絕分支預設為 `--relay-fallback=reject`。開啟 `degrade` 後，2a 與 1A 的可降轉檢查失敗另走下列分支（key、path、JSON 物件驗證不變）：
+
+```text
+2a / 1A relay check fails
+├─ reject (default) ───────────────────────────► existing 400
+└─ degrade
+     ├─ Claude official ──────────────────────► loose normalize -> gateway assembly
+     │                                           -> target home /messages or /count_tokens
+     ├─ Codex WS account mismatch ────────────► 426 -> CLI session HTTP fallback
+     ├─ Codex HTTP POST /responses ───────────► normalize + Lite -> target Codex client
+     └─ Codex other endpoint ─────────────────► raw relay, target auth + account id
+
+Target: model alias, otherwise first home of that provider
+State: alias + SHA256 in per-server LRU; retain only recorded reasoning
+```
+
+原有路由：
+
 ```text
 request
 │
@@ -145,6 +163,8 @@ agent-gateway |                    | read accountUuid      | fetch POST    | tra
 
 ### 3.3 官方 Claude Code → `/v1/messages`（2a）
 
+下圖是預設 `reject`；`degrade` 時，缺 cch/OAuth、帳號或 alias 不符、send-time 換帳號會在尚未寫回 bytes 前改走 gateway 自組，詳 §3.9。
+
 ```text
 Time ─────────────────────────────────────────────────────────────────────────────────►
 
@@ -231,6 +251,8 @@ agent-gateway |                   | rebuild blocks     | accountUuid,      | str
 - 回應：串流時上游 SSE bytes 原樣轉回（headers 是 gateway 自己的 SSE headers），中途斷線就切斷 client 連線（`cloakMessages.ts:82-90`）；非串流由 `src/claude/collectMessage.ts:74` 聚合成一個 Message。不使用 `claude-state/`。
 
 ### 3.6 官方 Codex CLI → `/backend-api/codex/*` 的 HTTP（1A）
+
+下圖是預設 `reject`；`degrade` 時入口或 send-time 帳號不符改依 model 選目標帳號，`POST /responses` 自組，其他 endpoint 保留 client UA 並換 token/account id，詳 §3.9。
 
 ```text
 Time ────────────────────────────────────────────────────────────────────────────────────►
@@ -349,6 +371,24 @@ OAuth server  | refresh grant      |                 | refresh grant       |    
 - 鎖內重讀後，才 POST `platform.claude.com/v1/oauth/token`；鎖在 POST 期間被搶走就中止。寫回用 compare-and-swap，最多試 3 次（`auth.ts:259-352`）。
 - 401 時磁碟上的 token 已換就直接採用，否則強制 refresh（`auth.ts:384-388`）；之後只重送一次。
 - (a) 只有 2a 與 count_tokens 會在每次送出前（包括 401 後的重送）比對 accountUuid（`src/claude/client.ts` 的 `postRawMessages`）。自組路徑和 2b 只在送出前讀一次 accountUuid，401 後的重送不再確認（`client.ts` 的 `sendWithAuthRecovery`）。
+
+### 3.9 官方 relay 檢查失敗 → gateway 自組
+
+```text
+Time ───────────────────────────────────────────────────────────────────────────►
+
+Role          | Check              | Prepare                    | Send / reply
+--------------|--------------------|----------------------------|--------------------
+Official CLI  | request            |                            | continue session
+Gateway       | supported mismatch | alias / first provider home| own headers + UA
+              | degrade enabled    | drop foreign reasoning     | pipe SSE, hash state
+              | Codex WS: 426      | Claude own billing / cch   | count_tokens: JSON
+Target BE     |                    |                            | new reasoning
+```
+
+Claude Messages 保留 caller tools／blocks 和原位置的 mid-system，只移除 client cache markers、billing/精確已知前綴、未記錄的 thinking；metadata/thinking 設定由 gateway 重建。2b 的嚴格 normalizer 不變。count_tokens 共用內容清理，但不經 Messages 組裝：只送 slug model、messages、非空 tools 與 client 原有 thinking；沒有 top-level system/billing/cch、metadata、max_tokens、stream、safeguards 或 output_config。headers 用 gateway UA、目標 token、session；beta 依 native count allowlist 的模型條件加 OAuth 與 token-counting，不因 deferred/reference 加 advanced-tool-use。記錄僅限降轉回應：Claude 在 block stop 記最後 signature 或 redacted data，Codex 在 reasoning output_item.done 記 encrypted_content。每 server 1000 筆 hash LRU，重啟清空。
+
+Codex 不解析 WS frame，所以握手帳號相符但 model alias 指向其他 home 的限制仍在；收到 426 的 session 改走完整 HTTP。這些路徑不是 100 分原樣轉送，沿用 Claude 65／Codex 82.35 基準；R1（tool 回合中刪除 thinking 的 ordering/signature 風險）未經真實上游驗證。完整限制見[使用指南](GUIDE.md#relay-檢查失敗時降轉--relay-fallback)。
 
 ## 4. 重點對照：gateway 會改和不改的東西
 

@@ -23,12 +23,13 @@ import {
 import { createProxyError, fromUpstreamHttpError, isProxyError } from '../errors.js';
 import { replaceRawHeaders, sendRawRequest } from '../utils/rawRelay.js';
 import type { Json } from '../types.js';
-import type { ClaudeModel, ClaudeRequest } from './types.js';
+import type { ClaudeCountTokensRequest, ClaudeModel, ClaudeRequest } from './types.js';
 
 export type PostMessagesOptions = {
   sessionId: string;
   betas: string[];
   signal?: AbortSignal;
+  isCountTokens?: boolean;
 };
 
 export type RawMessagesInput = {
@@ -43,7 +44,7 @@ export type RawMessagesInput = {
 };
 
 export type ClaudeClient = {
-  postMessages: (request: ClaudeRequest, options: PostMessagesOptions) => Promise<Response>;
+  postMessages: (request: ClaudeRequest | ClaudeCountTokensRequest, options: PostMessagesOptions) => Promise<Response>;
   // Native relay: the client's own bytes and headers go out with this home's token, and any
   // upstream status comes back as the raw response instead of a gateway error.
   postRawMessages: (input: RawMessagesInput) => Promise<IncomingMessage>;
@@ -180,13 +181,16 @@ export const createClaudeClient = ({
     throw proxyError;
   };
 
-  const postMessages = async (request: ClaudeRequest, options: PostMessagesOptions): Promise<Response> => {
-    const body = await serializeClaudeRequest(request);
-    return sendWithAuth((accessToken) =>
-      fetchFn(`${baseUrl}${CLAUDE_MESSAGES_PATH}`, {
+  const postMessages = async (request: ClaudeRequest | ClaudeCountTokensRequest, options: PostMessagesOptions): Promise<Response> => {
+    // Mirrors references/claude-code native 2.1.302 SDK countTokens @238319444.
+    const body = options.isCountTokens ? JSON.stringify(request) : await serializeClaudeRequest(request);
+    const betas = options.isCountTokens ? [...options.betas, 'token-counting-2024-11-01'] : options.betas;
+    const send = options.isCountTokens ? sendWithAuthRecovery : sendWithAuth;
+    return send((accessToken) =>
+      fetchFn(`${baseUrl}${options.isCountTokens ? '/v1/messages/count_tokens?beta=true' : CLAUDE_MESSAGES_PATH}`, {
         method: 'POST',
         headers: {
-          ...buildClaudeHeaders({ accessToken, sessionId: options.sessionId, betas: options.betas, timeoutMs: CLAUDE_REQUEST_TIMEOUT_MS }),
+          ...buildClaudeHeaders({ accessToken, sessionId: options.sessionId, betas, timeoutMs: CLAUDE_REQUEST_TIMEOUT_MS }),
           // Mirrors references/CLIProxyAPI applyClaudeHeaders and native fetch @219095310.
           ...(new URL(baseUrl).origin === CLAUDE_BASE_URL ? { 'x-client-request-id': randomUUID() } : {}),
           'content-type': 'application/json',

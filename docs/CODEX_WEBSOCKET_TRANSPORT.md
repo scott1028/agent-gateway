@@ -137,6 +137,8 @@ Claude 無法比照：Messages API 沒有伺服器端狀態，只能靠 prompt c
 
 ## 11. 已實作：官方路線的透明轉送（`src/upstream/codexRelay.ts`）
 
+以下原樣轉送和 400 規則以預設 `--relay-fallback=reject` 為準；可選的 `degrade` 見 §11.5。
+
 ### 11.1 擷取證據
 
 兩次都用 Codex CLI 0.163.0 的 `codex exec` 連本機 capture server，沒有打上游。紀錄在 supervisor scratchpad 的 `capture/codex-ws.jsonl`、`capture/codex-official.jsonl`，摘要見 `.tmp/codex-ws-capture.md`。
@@ -181,3 +183,13 @@ Claude 無法比照：Messages API 沒有伺服器端狀態，只能靠 prompt c
   - fixture 照官方路線擷取的 header 順序與 frame 形狀改寫，所有 id、token 和文字都是假的。
 - [v] 真實上游端對端（使用者手動執行，2026-10-18）：`codex exec -c 'openai_base_url="http://127.0.0.1:8765/backend-api/codex"' "say ok"` 回 `ok`，model 是 `gpt-6.1-sol`，tokens used 24,378。gateway 開 `--debug 1` 重跑一次，log 有 `GET /backend-api/codex/models?client_version=0.163.0 200` 兩次，以及 `GET /backend-api/codex/responses 101` 兩次（主 session 和 guardian 子 agent），確認走的是 WebSocket，沒有退回 HTTP。
 - [ ] 未驗證：TLS 指紋、guardian 專屬的 replay／恢復等完整行為（連線本身已在上面的 E2E 看到 101，wire-level 測試沒有另外測 guardian）、remote compaction 等其他路徑、60 分鐘連線上限之後的實際重連。
+
+### 11.5 可選 relay fallback（`--relay-fallback=degrade`）
+
+入口或送出前重新確認時帳號不符，WS 握手回 **426** 而不 upgrade，log 記 `degraded=account_mismatch`／`account_changed`。對照 references/codex `0d58012ec20d0f42ea1c11056815e4a0c5122e99`：`core/src/client.rs:1622-1625`（prewarm）與 `2052-2056`（stream）處理 426；`force_http_fallback:719-738` 設定 session 的 `disable_websockets`，`responses_websocket_enabled:1112-1119` 因此關閉 WS。不用重開 CLI，這個 session 剩餘請求只走 HTTP，每次完整重送。
+
+HTTP `POST /backend-api/codex/responses` 依 model alias 或第一個 Codex home 選目標，使用既有 `normalizeResponsesRequest`／Lite 與 gateway 自己的 headers/UA；不送 client turn-state。未記錄的 reasoning item 整個移除；只保留目標 alias 的已記錄 `encrypted_content`。SSE bytes 原樣回傳，於 `response.output_item.done` 的 reasoning 記 SHA256，LRU 每 server 1000 筆，重啟清空。其他 endpoint（如 models）仍為 client-built relay，保留原 UA/body，只改目標 token 與 `chatgpt-account-id`（另有正常 hop framing/host 調整）；body 原樣轉送、不需要是 JSON，只有能解析成帶 `model` 的 JSON 物件時才依 model 選帳號，否則用第一個 Codex home。API key 403 與非路徑／前綴錯誤不降轉；`POST /responses` 的 body 必須是 JSON 物件，否則回 400。
+
+**WS alias 限制**：握手沒有 model；若 client 帳號已對上某 home，但 frame 的 model 帶其他 home alias，gateway 不解析 frame、不因 alias 而降轉，上游會拒絕該 model。HTTP 才能按 alias 選帳號。此為使用者接受的限制。
+
+降轉不是 100 分原樣轉送，沿用自組 Codex **82.35** 基準，並非本次重新量測。新增 mock/wire 測試驗證 426、send-time 切換、Lite、reasoning 隔離與 non-responses headers；未連真實上游，官方 CLI 收到 gateway 426 後的完整多輪 E2E 仍需使用者確認。

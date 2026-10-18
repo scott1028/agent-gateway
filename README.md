@@ -83,6 +83,8 @@ CLAUDE_CONFIG_DIR=~/.agent-gateway-claude claude     # 進入後輸入 /login
 
 `--auto` 會用到平常 `codex` CLI 的 home。gateway 執行期間不要用同一個 home 跑 `codex`，否則其中一邊會被登出。細節見[使用指南](docs/GUIDE.md)的「自動掃描 home（`--auto`）」。
 
+可選 `--relay-fallback=degrade`（預設 `reject`）：官方 relay 帳號／形狀檢查失敗時改由 gateway 自組，不用重開 CLI；相似度基準為 Claude 65／Codex 82.35，不是 100。推理記錄重啟後清空，Codex 426 後該 session 只走 HTTP；WS alias 限制與未驗證的 R1 風險見[使用指南](docs/GUIDE.md#relay-檢查失敗時降轉--relay-fallback)。
+
 checksum 驗證、macOS／Windows 首次執行提示、AppImage 用法、環境變數與所有選項，請看[使用指南](docs/GUIDE.md)。從舊版 codex-proxy 升級的人，先看指南裡的搬遷步驟。
 
 ## 接上你的工具

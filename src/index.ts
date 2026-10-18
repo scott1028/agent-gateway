@@ -14,12 +14,14 @@ const main = async (): Promise<void> => {
   let isDebugEnabled = false;
   let debugLevel: DebugLevel = 0;
   let autoHomes: AutoHomes | undefined;
+  let relayFallback: 'reject' | 'degrade' = 'reject';
   try {
     const cliArgs = parseCliArgs(process.argv.slice(2));
     if (cliArgs.isHelpRequested) {
       console.log(USAGE_TEXT);
       process.exit(0);
     }
+    relayFallback = cliArgs.relayFallback ?? 'reject';
     isDebugEnabled = cliArgs.isDebugEnabled;
     debugLevel = cliArgs.debugLevel;
     autoHomes = cliArgs.isAutoEnabled ? findAutoHomes(os.homedir()) : undefined;
@@ -74,7 +76,7 @@ const main = async (): Promise<void> => {
     }
   }
 
-  const server = createProxyServer({ accounts, contextLength: config.contextLength, defaultModelId: config.defaultModelId, debugLevel: isDebugEnabled ? debugLevel : undefined, apiKey: config.apiKey });
+  const server = createProxyServer({ relayFallback, accounts, contextLength: config.contextLength, defaultModelId: config.defaultModelId, debugLevel: isDebugEnabled ? debugLevel : undefined, apiKey: config.apiKey });
 
   // A bad --host or a busy port would otherwise crash with an unhandled 'error' event.
   server.on('error', (error) => {

@@ -83,6 +83,8 @@ CLAUDE_CONFIG_DIR=~/.agent-gateway-claude claude     # 起動後に /login と�
 
 `--auto` は普段の `codex` CLI と同じ home を使います。gateway の実行中は同じ home で `codex` を動かさないでください。どちらかがログアウトされます。詳しくは[利用ガイド](docs/GUIDE.md)の「自動掃描 home（`--auto`）」を見てください。
 
+任意の `--relay-fallback=degrade`（既定は `reject`）で、公式 relay のアカウント／形状チェック失敗時に gateway 自身の組み立てへ切り替えます。CLI の再起動は不要です。類似度の基準は Claude 65／Codex 82.35 で、100 ではありません。推論の記録は gateway 再起動で消え、Codex が 426 を受けた後はその session が HTTP のみを使います。WS の alias 制限と未検証の R1 リスクは[利用ガイド](docs/GUIDE.md#relay-檢查失敗時降轉--relay-fallback)を参照してください。
+
 checksum の確認、macOS／Windows の初回起動時の警告、AppImage の使い方、環境変数とすべてのオプションは[利用ガイド](docs/GUIDE.md)（中国語）を見てください。旧 codex-proxy から移行する場合は、先にガイドの移行手順を読んでください。
 
 ## ツールをつなぐ

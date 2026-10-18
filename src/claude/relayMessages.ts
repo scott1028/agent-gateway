@@ -7,10 +7,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Account, ClaudeAccount } from '../accounts.js';
 import { CLAUDE_OAUTH_BETA, CLAUDE_RELAY_SESSION_MAX_ENTRIES, MODEL_ID_SEPARATOR } from '../constants.js';
-import { createProxyError, type ProxyError } from '../errors.js';
+import { createProxyError, isProxyError, type ProxyError } from '../errors.js';
 import type { Json } from '../types.js';
 import type { ProxyDeps, RequestLog } from '../utils/http.js';
 import { filterRawHeaders, getRawHeader, pipeRawResponse, RELAY_DROPPED_REQUEST_HEADERS } from '../utils/rawRelay.js';
+import { degradeClaudeMessages } from './degradeRelay.js';
 import { readClaudeAccountMetadata } from './auth.js';
 
 export type ClaudeRelayRequest = {
@@ -49,7 +50,8 @@ const JSON_WHITESPACE = new Set([0x20, 0x09, 0x0a, 0x0d]);
 // Wl() at native 2.1.302 offset 238462490 puts it on every request of the session, count_tokens included.
 const SESSION_HEADER = 'x-claude-code-session-id';
 
-const toRelayError = (message: string): ProxyError => createProxyError({ status: 400, type: 'invalid_request_error', message });
+const toRelayError = (message: string, code?: string): ProxyError => createProxyError({ status: 400, type: 'invalid_request_error', message, code });
+const DEGRADABLE_CODES = new Set(['missing_cch', 'missing_oauth', 'account_mismatch', 'alias_mismatch', 'unbound_session', 'account_changed']);
 
 // In-memory LRU keyed by x-claude-code-session-id, the same Map-order scheme as responseStore.ts.
 export const createClaudeRelaySessions = (): ClaudeRelaySessions => {
@@ -164,7 +166,7 @@ const assertOAuthBeta = (headers: string[]): void => {
   const betas = (getRawHeader(headers, 'anthropic-beta') ?? '').split(',').map((beta) => beta.trim());
   if (!betas.includes(CLAUDE_OAUTH_BETA)) {
     throw toRelayError(
-      `Log Claude Code in with a Claude subscription first (run \`claude\`, then /login); requests without the ${CLAUDE_OAUTH_BETA} beta come from an auth token or API key login and are not relayed.`,
+      `Log Claude Code in with a Claude subscription first (run \`claude\`, then /login); requests without the ${CLAUDE_OAUTH_BETA} beta come from an auth token or API key login and are not relayed.`, 'missing_oauth',
     );
   }
 };
@@ -176,7 +178,7 @@ const toRelayBody = (rawBody: Buffer, body: Json, account: ClaudeAccount): { mod
   if (separatorIndex === -1) return { model, body: rawBody };
   const alias = model.slice(0, separatorIndex);
   if (alias !== account.alias) {
-    throw toRelayError(`Model alias "${alias}" does not match the gateway Claude home of this login (${account.alias}).`);
+    throw toRelayError(`Model alias "${alias}" does not match the gateway Claude home of this login (${account.alias}).`, 'alias_mismatch');
   }
   const modelId = model.slice(separatorIndex + 1);
   if (modelId === '') throw toRelayError(`Missing model name after "${alias}${MODEL_ID_SEPARATOR}"`);
@@ -205,7 +207,7 @@ export const getClaudeRelayRequest = async (input: {
   const billingText = typeof billingBlock?.text === 'string' ? billingBlock.text : '';
   if (!billingText.startsWith('x-anthropic-billing-header:') || !billingText.includes(' cch=')) {
     throw toRelayError(
-      'Start Claude Code with _CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1. Without it a custom ANTHROPIC_BASE_URL makes the client itself send a reduced request (no cch billing signature, fewer betas and tools), which the gateway cannot relay as the official request.',
+      'Start Claude Code with _CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1. Without it a custom ANTHROPIC_BASE_URL makes the client itself send a reduced request (no cch billing signature, fewer betas and tools), which the gateway cannot relay as the official request.', 'missing_cch',
     );
   }
 
@@ -226,7 +228,7 @@ export const getClaudeRelayRequest = async (input: {
   }
   if (account === undefined) {
     const aliases = claudeAccounts.map((candidate) => candidate.alias).join(', ') || 'none configured';
-    throw toRelayError(`Claude Code must be logged in to the same account as a gateway Claude home (${aliases}); the client's account matches none of them.`);
+    throw toRelayError(`Claude Code must be logged in to the same account as a gateway Claude home (${aliases}); the client's account matches none of them.`, 'account_mismatch');
   }
 
   const { model, body: relayBody } = toRelayBody(rawBody, body, account);
@@ -251,7 +253,7 @@ export const getClaudeCountTokensRequest = (input: {
   const account = accounts.find((candidate): candidate is ClaudeAccount => candidate.provider === 'claude' && candidate.alias === session?.alias);
   if (session === undefined || account === undefined) {
     throw toRelayError(
-      `count_tokens is relayed only for a Claude Code session that already passed the same-account check on /v1/messages; send /v1/messages in this session (the same ${SESSION_HEADER}) first.`,
+      `count_tokens is relayed only for a Claude Code session that already passed the same-account check on /v1/messages; send /v1/messages in this session (the same ${SESSION_HEADER}) first.`, 'unbound_session',
     );
   }
   const { model, body: relayBody } = toRelayBody(rawBody, body, account);
@@ -268,7 +270,7 @@ const sendClaudeRelay = async (res: ServerResponse, relay: ClaudeRelayRequest, s
   const verifyAccount = async (): Promise<void> => {
     if ((await readClaudeAccountMetadata(relay.account.homePath)).accountUuid === relay.accountUuid) return;
     throw toRelayError(
-      `Gateway Claude home ${relay.account.alias} is now logged in to a different account than Claude Code, so the request was not sent. Log that home back in to the same account as Claude Code and retry.`,
+      `Gateway Claude home ${relay.account.alias} is now logged in to a different account than Claude Code, so the request was not sent. Log that home back in to the same account as Claude Code and retry.`, 'account_changed',
     );
   };
   const upstream = await relay.account.client.postRawMessages({ body: relay.body, headers: relay.headers, pathAndQuery: relay.pathAndQuery, signal, verifyAccount });
@@ -286,17 +288,22 @@ type RelayInput = {
   sessions: ClaudeRelaySessions;
 };
 
-export const relayClaudeMessages = async (input: RelayInput): Promise<void> => {
+const relayClaudeRequest = async (input: RelayInput, isCountTokens: boolean): Promise<void> => {
   const { req, res, rawBody, signal, deps, log, sessions } = input;
-  const relay = await getClaudeRelayRequest({ accounts: deps.accounts, rawHeaders: req.rawHeaders, rawBody, url: req.url ?? '' });
-  // Bound once every entry check has passed; the send-time account check still applies.
-  const sessionId = getRawHeader(req.rawHeaders, SESSION_HEADER);
-  if (sessionId) sessions.save(sessionId, { alias: relay.account.alias, accountUuid: relay.accountUuid });
-  await sendClaudeRelay(res, relay, signal, log);
+  try {
+    const relay = isCountTokens
+      ? getClaudeCountTokensRequest({ accounts: deps.accounts, sessions, rawHeaders: req.rawHeaders, rawBody, url: req.url ?? '' })
+      : await getClaudeRelayRequest({ accounts: deps.accounts, rawHeaders: req.rawHeaders, rawBody, url: req.url ?? '' });
+    // Bound once every entry check has passed; the send-time account check still applies.
+    const sessionId = getRawHeader(req.rawHeaders, SESSION_HEADER);
+    if (!isCountTokens && sessionId) sessions.save(sessionId, { alias: relay.account.alias, accountUuid: relay.accountUuid });
+    await sendClaudeRelay(res, relay, signal, log);
+  } catch (error) {
+    if (deps.relayFallback !== 'degrade' || res.headersSent || !isProxyError(error) || error.status !== 400 || !DEGRADABLE_CODES.has(error.code ?? '')) throw error;
+    log.degraded = error.code;
+    await degradeClaudeMessages({ ...input, body: parseRelayBody(req.url ?? '', rawBody), isCountTokens });
+  }
 };
 
-export const relayClaudeCountTokens = async (input: RelayInput): Promise<void> => {
-  const { req, res, rawBody, signal, deps, log, sessions } = input;
-  const relay = getClaudeCountTokensRequest({ accounts: deps.accounts, sessions, rawHeaders: req.rawHeaders, rawBody, url: req.url ?? '' });
-  await sendClaudeRelay(res, relay, signal, log);
-};
+export const relayClaudeMessages = (input: RelayInput): Promise<void> => relayClaudeRequest(input, false);
+export const relayClaudeCountTokens = (input: RelayInput): Promise<void> => relayClaudeRequest(input, true);

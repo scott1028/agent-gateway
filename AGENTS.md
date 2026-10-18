@@ -66,6 +66,20 @@ So the rule is simple:
      shape is official; the tools, system texts and messages stay the
      client's, so we **MUST NOT** claim the official client built it.
 
+## Identity rules for relay fallback
+
+- With `--relay-fallback=degrade`, an official relay request that fails the supported
+  account/shape checks is gateway-built, like 2b: it MUST use the gateway's own headers,
+  pinned User-Agent, with the target home's token. Claude Messages uses gateway `cch`
+  and account metadata; count_tokens MUST use the native count-only body, without
+  system, billing or metadata.
+  It MUST NOT be described as a request built by the official client. Default `reject`
+  keeps the existing relay behavior unchanged.
+- User-approved relay exception: degraded Codex endpoints other than `POST /responses`
+  (for example `GET /models`) still forward the client's own request and User-Agent,
+  replacing only the token and `chatgpt-account-id` (plus normal hop framing/host).
+  This is the same client-built relay exception described above, not gateway impersonation.
+
 ## Similarity check after upstream API changes
 
 - When you finish adjusting upstream API code (request shaping, headers,

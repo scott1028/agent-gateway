@@ -35,6 +35,7 @@ Options:
                         1: 0 plus full headers and request/response bodies for upstream calls.
                         2: 0 plus full headers and request/response bodies for incoming calls.
                         3: full headers and request/response bodies for both incoming and upstream calls.
+  --relay-fallback <reject|degrade>  On relay account/shape mismatch (default: reject).
   --model <id>          Default model when a request has no model (default: first model in /v1/models).
   --context-length <n>  context_length reported in /v1/models (default ${DEFAULT_CONTEXT_LENGTH}).
   --host <addr>         Address to listen on (default ${DEFAULT_HOST}). Any address other than
@@ -61,6 +62,7 @@ export const parseCliArgs = (
   codexHomes: string[];
   claudeHomes: string[];
   contextLength?: string;
+  relayFallback?: 'reject' | 'degrade';
   model?: string;
   host?: string;
   isAutoEnabled: boolean;
@@ -82,12 +84,18 @@ export const parseCliArgs = (
       help: { type: 'boolean', short: 'h' },
       host: { type: 'string' },
       model: { type: 'string' },
+      'relay-fallback': { type: 'string' },
     },
   });
   if (values.debug !== undefined && !['0', '1', '2', '3'].includes(values.debug)) {
     throw new Error(`Invalid --debug: ${values.debug}; expected 0, 1, 2, or 3`);
   }
+  const relayFallback = values['relay-fallback'];
+  if (relayFallback !== undefined && relayFallback !== 'reject' && relayFallback !== 'degrade') {
+    throw new Error(`Invalid --relay-fallback: ${relayFallback}; expected reject or degrade`);
+  }
   return {
+    ...(relayFallback === undefined ? {} : { relayFallback }),
     codexHomes: values['codex-home'] ?? [],
     claudeHomes: values['claude-home'] ?? [],
     contextLength: values['context-length'],
