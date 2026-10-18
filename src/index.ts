@@ -14,14 +14,14 @@ const main = async (): Promise<void> => {
   let isDebugEnabled = false;
   let debugLevel: DebugLevel = 0;
   let autoHomes: AutoHomes | undefined;
-  let relayFallback: 'reject' | 'degrade' = 'reject';
+  let relayFallback: 'reject' | 'degrade' = 'degrade';
   try {
     const cliArgs = parseCliArgs(process.argv.slice(2));
     if (cliArgs.isHelpRequested) {
       console.log(USAGE_TEXT);
       process.exit(0);
     }
-    relayFallback = cliArgs.relayFallback ?? 'reject';
+    relayFallback = cliArgs.relayFallback ?? 'degrade';
     isDebugEnabled = cliArgs.isDebugEnabled;
     debugLevel = cliArgs.debugLevel;
     autoHomes = cliArgs.isAutoEnabled ? findAutoHomes(os.homedir()) : undefined;

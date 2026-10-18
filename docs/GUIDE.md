@@ -167,14 +167,14 @@ POST /v1/responses 200 812ms model=codex1/gpt-5.6
 - `--context-length <n>`：只在 `/v1/models` 每筆 model 標示 `context_length`（預設 `250000`），讓 agent CLI 讀 context window；**不會**限制實際 request。
 - `--host <addr>`：listen 位址（預設 `127.0.0.1`，優先於 `AGENT_GATEWAY_HOST`），見「對外開放」。
 - `--auto`：自動使用 `$HOME` 下所有已登入的 Codex／Claude home，見下一節。
-- `--relay-fallback=reject|degrade`：官方 relay 的檢查失敗策略，預設 `reject`，不新增環境變數，見「Relay 檢查失敗時降轉」。
+- `--relay-fallback=reject|degrade`：官方 relay 的檢查失敗策略，預設 `degrade`（用 `reject` 關閉），不新增環境變數，見「Relay 檢查失敗時降轉」。
 
 ## Relay 檢查失敗時降轉（`--relay-fallback`）
 
-預設 `--relay-fallback=reject` 完全維持原有拒絕行為。想在帳號切換後繼續對話，可在啟動 gateway 時選擇：
+預設 `--relay-fallback=degrade`：檢查失敗時由 gateway 重組，帳號切換後對話可繼續。想完全維持原有拒絕行為，啟動時加：
 
 ```bash
-npm start -- --codex-home ~/.agent-gateway --claude-home ~/.agent-gateway-claude --relay-fallback=degrade
+npm start -- --codex-home ~/.agent-gateway --claude-home ~/.agent-gateway-claude --relay-fallback=reject
 ```
 
 **不用重開 client CLI**。這不是補成官方 relay，而是像剛開啟的第三方 client：由 gateway 重組請求，使用 gateway 自己的 headers、釘住的 UA、Claude Messages 的 `cch` 和目標 home 的帳號／token（count_tokens 使用下述專用形狀，沒有 billing/cch）。相似度沿用自組路徑的 Claude **65**／Codex **82.35** 基準，**不是 100**；這不是本次重新量測的分數。
@@ -301,7 +301,7 @@ Claude 的 thinking 區塊帶簽章，工具回合續接時必須原樣送回，
 
 先決條件：
 
-以下同帳號原樣轉送條件與 400 說明以預設 `reject` 為準；選擇 `degrade` 時，符合官方 client 偵測的請求可改走上節降轉。
+以下同帳號原樣轉送條件與 400 說明以 `reject`（關閉降轉）為準；預設 `degrade` 時，符合官方 client 偵測的請求改走上節降轉。
 
 1. Claude Code 已用 OAuth 登入（執行 `claude` 後輸入 `/login`）。不要用 `ANTHROPIC_AUTH_TOKEN` 或 `ANTHROPIC_API_KEY`。
 2. client 登入的帳號，要和某個 gateway Claude home **是同一個帳號**。gateway 拿請求 `metadata.user_id` 裡的 `account_uuid`，去比對每個 home 的 `oauthAccount.accountUuid`；對上的 home 就是這次用的帳號。model alias 不參與帳號選擇。
@@ -436,7 +436,7 @@ openai_base_url = "http://127.0.0.1:8765/backend-api/codex"
 codex -c 'openai_base_url="http://127.0.0.1:8765/backend-api/codex"' "your prompt"
 ```
 
-以下原樣轉送條件與狀態碼以預設 `reject` 為準；`degrade` 的帳號不符分支見「Relay 檢查失敗時降轉」。
+以下原樣轉送條件與狀態碼以 `reject`（關閉降轉）為準；預設 `degrade` 的帳號不符分支見「Relay 檢查失敗時降轉」。
 
 先決條件與限制：
 

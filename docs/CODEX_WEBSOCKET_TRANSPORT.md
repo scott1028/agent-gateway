@@ -137,7 +137,7 @@ Claude 無法比照：Messages API 沒有伺服器端狀態，只能靠 prompt c
 
 ## 11. 已實作：官方路線的透明轉送（`src/upstream/codexRelay.ts`）
 
-以下原樣轉送和 400 規則以預設 `--relay-fallback=reject` 為準；可選的 `degrade` 見 §11.5。
+以下原樣轉送和 400 規則以 `--relay-fallback=reject`（關閉降轉）為準；預設開啟的 `degrade` 見 §11.5。
 
 ### 11.1 擷取證據
 
@@ -184,7 +184,7 @@ Claude 無法比照：Messages API 沒有伺服器端狀態，只能靠 prompt c
 - [v] 真實上游端對端（使用者手動執行，2026-10-18）：`codex exec -c 'openai_base_url="http://127.0.0.1:8765/backend-api/codex"' "say ok"` 回 `ok`，model 是 `gpt-6.1-sol`，tokens used 24,378。gateway 開 `--debug 1` 重跑一次，log 有 `GET /backend-api/codex/models?client_version=0.163.0 200` 兩次，以及 `GET /backend-api/codex/responses 101` 兩次（主 session 和 guardian 子 agent），確認走的是 WebSocket，沒有退回 HTTP。
 - [ ] 未驗證：TLS 指紋、guardian 專屬的 replay／恢復等完整行為（連線本身已在上面的 E2E 看到 101，wire-level 測試沒有另外測 guardian）、remote compaction 等其他路徑、60 分鐘連線上限之後的實際重連。
 
-### 11.5 可選 relay fallback（`--relay-fallback=degrade`）
+### 11.5 預設開啟的 relay fallback（`--relay-fallback=degrade`，用 `reject` 關閉）
 
 入口或送出前重新確認時帳號不符，WS 握手回 **426** 而不 upgrade，log 記 `degraded=account_mismatch`／`account_changed`。對照 references/codex `0d58012ec20d0f42ea1c11056815e4a0c5122e99`：`core/src/client.rs:1622-1625`（prewarm）與 `2052-2056`（stream）處理 426；`force_http_fallback:719-738` 設定 session 的 `disable_websockets`，`responses_websocket_enabled:1112-1119` 因此關閉 WS。不用重開 CLI，這個 session 剩餘請求只走 HTTP，每次完整重送。
 

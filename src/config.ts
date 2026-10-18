@@ -35,7 +35,7 @@ Options:
                         1: 0 plus full headers and request/response bodies for upstream calls.
                         2: 0 plus full headers and request/response bodies for incoming calls.
                         3: full headers and request/response bodies for both incoming and upstream calls.
-  --relay-fallback <reject|degrade>  On relay account/shape mismatch (default: reject).
+  --relay-fallback <reject|degrade>  On relay account/shape mismatch (default: degrade; reject keeps the original 400 behavior).
   --model <id>          Default model when a request has no model (default: first model in /v1/models).
   --context-length <n>  context_length reported in /v1/models (default ${DEFAULT_CONTEXT_LENGTH}).
   --host <addr>         Address to listen on (default ${DEFAULT_HOST}). Any address other than

@@ -221,7 +221,7 @@ TTL：`z4` 只在 ttl 有值時才送 `ttl`，而主推論只把 `ttl:"1h"` 傳�
 
 ## 13. 原生轉送路徑（`POST /v1/messages` 與 `count_tokens`，只給官方 Claude Code）
 
-本節既有原樣轉送與 400 規則以預設 `--relay-fallback=reject` 為準；選擇 `degrade` 的例外見 §13.5。
+本節既有原樣轉送與 400 規則以 `--relay-fallback=reject`（關閉降轉）為準；預設開啟的 `degrade` 例外見 §13.5。
 
 這條路徑上游看到的是 **client 自己產生的官方請求**：body 逐 byte 相同，headers 只換掉 `Authorization`（`host` 和 `content-length` 是這一段連線本身的值，見 §13.2）。gateway 不組請求，所以 §3.3、§6、§7、§8 的請求成形規則都不適用於這條路徑。
 
@@ -284,9 +284,9 @@ TTL：`z4` 只在 ttl 有值時才送 `ttl`，而主推論只把 `ttl:"1h"` 傳�
 - [v] 真實上游端對端（使用者手動執行，2026-10-18）：`CLAUDE_CONFIG_DIR=~/.claude-personal ANTHROPIC_BASE_URL=http://127.0.0.1:8765 _CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL=1 claude -p "say ok"` 回 `ok`。
 - [ ] 未驗證：TLS 指紋、互動模式（entrypoint `cli`）、helper 請求（例如 title、quota）、count_tokens 的實際擷取（目前只有靜態查證，見 §13.1）、其他路徑（目前回 404）。
 
-### 13.5 可選 relay fallback（`--relay-fallback=degrade`）
+### 13.5 預設開啟的 relay fallback（`--relay-fallback=degrade`，用 `reject` 關閉）
 
-已通過官方 client 偵測的請求，若缺 `cch`、OAuth beta、帳號不符、alias 不符、count_tokens session 未綁定，或送出前帳號已換，可改走 `degradeMessages.ts` / `degradeRelay.ts`；預設 `reject` 完全不變。非物件 JSON、非路徑 target、gateway key 的錯誤不降轉。目標依 alias 或第一個 Claude home 選擇。
+已通過官方 client 偵測的請求，若缺 `cch`、OAuth beta、帳號不符、alias 不符、count_tokens session 未綁定，或送出前帳號已換，預設改走 `degradeMessages.ts` / `degradeRelay.ts`；`reject` 完全維持原行為。非物件 JSON、非路徑 target、gateway key 的錯誤不降轉。目標依 alias 或第一個 Claude home 選擇。
 
 這是 **gateway-built**，不是官方 client 的原樣請求：用既有組裝層、gateway 自己釘住的 UA/headers、目標 home metadata/token，重簽 `cch`。移除 client billing 和下一塊精確前綴；native 2.1.302 的完整集合為：`nl` @238379007（CLI）、`zd` @238379070（CLI running within SDK）、`qd` @238379170（Claude agent built on SDK）；`I_=[nl,zd,qd]` @238379238、`AKn` @238379267 使用 Set.has 完全比對。
 

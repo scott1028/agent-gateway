@@ -73,8 +73,8 @@ So the rule is simple:
   pinned User-Agent, with the target home's token. Claude Messages uses gateway `cch`
   and account metadata; count_tokens MUST use the native count-only body, without
   system, billing or metadata.
-  It MUST NOT be described as a request built by the official client. Default `reject`
-  keeps the existing relay behavior unchanged.
+  It MUST NOT be described as a request built by the official client. `degrade` is on by
+  default; `--relay-fallback=reject` keeps the existing relay behavior unchanged.
 - User-approved relay exception: degraded Codex endpoints other than `POST /responses`
   (for example `GET /models`) still forward the client's own request and User-Agent,
   replacing only the token and `chatgpt-account-id` (plus normal hop framing/host).

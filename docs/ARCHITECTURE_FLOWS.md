@@ -37,12 +37,12 @@ Agent client                       agent-gateway (src/)                        �
 
 ## 2. 路由判斷
 
-原樣轉送的拒絕分支預設為 `--relay-fallback=reject`。開啟 `degrade` 後，2a 與 1A 的可降轉檢查失敗另走下列分支（key、path、JSON 物件驗證不變）：
+原樣轉送的拒絕分支要用 `--relay-fallback=reject` 關閉降轉才成立。預設 `degrade` 下，2a 與 1A 的可降轉檢查失敗走下列分支（key、path、JSON 物件驗證不變）：
 
 ```text
 2a / 1A relay check fails
-├─ reject (default) ───────────────────────────► existing 400
-└─ degrade
+├─ reject ─────────────────────────────────────► existing 400
+└─ degrade (default)
      ├─ Claude official ──────────────────────► loose normalize -> gateway assembly
      │                                           -> target home /messages or /count_tokens
      ├─ Codex WS account mismatch ────────────► 426 -> CLI session HTTP fallback
@@ -163,7 +163,7 @@ agent-gateway |                    | read accountUuid      | fetch POST    | tra
 
 ### 3.3 官方 Claude Code → `/v1/messages`（2a）
 
-下圖是預設 `reject`；`degrade` 時，缺 cch/OAuth、帳號或 alias 不符、send-time 換帳號會在尚未寫回 bytes 前改走 gateway 自組，詳 §3.9。
+下圖是 `reject`（關閉降轉）；預設 `degrade` 時，缺 cch/OAuth、帳號或 alias 不符、send-time 換帳號會在尚未寫回 bytes 前改走 gateway 自組，詳 §3.9。
 
 ```text
 Time ─────────────────────────────────────────────────────────────────────────────────►
@@ -252,7 +252,7 @@ agent-gateway |                   | rebuild blocks     | accountUuid,      | str
 
 ### 3.6 官方 Codex CLI → `/backend-api/codex/*` 的 HTTP（1A）
 
-下圖是預設 `reject`；`degrade` 時入口或 send-time 帳號不符改依 model 選目標帳號，`POST /responses` 自組，其他 endpoint 保留 client UA 並換 token/account id，詳 §3.9。
+下圖是 `reject`（關閉降轉）；預設 `degrade` 時入口或 send-time 帳號不符改依 model 選目標帳號，`POST /responses` 自組，其他 endpoint 保留 client UA 並換 token/account id，詳 §3.9。
 
 ```text
 Time ────────────────────────────────────────────────────────────────────────────────────►
