@@ -49,6 +49,8 @@ export type ClaudeClient = {
   // upstream status comes back as the raw response instead of a gateway error.
   postRawMessages: (input: RawMessagesInput) => Promise<IncomingMessage>;
   getModels: () => Promise<ClaudeModel[]>;
+  // The home's upstream origin, for the access log's upstream send line.
+  baseUrl: string;
 };
 
 type ClaudeClientDeps = {
@@ -280,5 +282,5 @@ export const createClaudeClient = ({
     }
   };
 
-  return { postMessages, postRawMessages, getModels };
+  return { postMessages, postRawMessages, getModels, baseUrl };
 };

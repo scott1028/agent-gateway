@@ -11,7 +11,7 @@ import { CODEX_REJECTED_UPGRADE_BODY_BYTES, CODEX_WEBSOCKET_CONNECT_TIMEOUT_MS, 
 import { createProxyError, isProxyError, type ProxyError, toOpenAiErrorBody } from '../errors.js';
 import { degradeCodexResponses } from './degradeCodex.js';
 import type { Credentials, Json } from '../types.js';
-import type { ProxyDeps, RequestLog } from '../utils/http.js';
+import { recordUpstreamSend, type ProxyDeps, type RequestLog } from '../utils/http.js';
 import {
   createRawRequest,
   filterRawHeaders,
@@ -157,17 +157,23 @@ type CodexHttpInput = {
 const sendCodexHttp = async (input: CodexHttpInput, target: CodexRelayTarget): Promise<void> => {
   const { req, res, rawBody: body, signal, log } = input;
   log.model = target.account.alias;
+  log.client = 'official';
+  log.mode = target.isDegraded ? 'gateway' : 'relay';
   const headers = filterRawHeaders(req.rawHeaders, RELAY_DROPPED_REQUEST_HEADERS);
   // A body-less GET must not gain a content-length the client never sent.
   const hasContentLength = getRawHeader(req.rawHeaders, 'content-length') !== undefined || body.length > 0;
   const baseUrl = new URL(target.account.client.baseUrl);
+  const path = `${baseUrl.pathname.replace(/\/$/, '')}${target.path}`;
+  // A pure relay does not parse the body, so its send line carries no model. Recorded inside the
+  // send closure: an account check that refuses before the wire must not print a send line.
   const upstream = await sendWithCodexRelayAuth(
     target,
     signal,
-    (credentials) =>
-      sendRawRequest({
+    (credentials) => {
+      recordUpstreamSend(log, { method: req.method ?? 'GET', url: `${baseUrl.origin}${path}` });
+      return sendRawRequest({
         baseUrl,
-        path: `${baseUrl.pathname.replace(/\/$/, '')}${target.path}`,
+        path,
         method: req.method ?? 'GET',
         // A Map, not an object: names such as `constructor` or `__proto__` must not hit Object.prototype.
         headers: replaceRawHeaders(
@@ -182,7 +188,8 @@ const sendCodexHttp = async (input: CodexHttpInput, target: CodexRelayTarget): P
         ),
         body,
         signal,
-      }),
+      });
+    },
     (response) => response.statusCode === 401,
     (response) => response.destroy(),
   );
@@ -337,16 +344,22 @@ export const relayCodexUpgrade = async (input: {
   const outcomePromise = (async (): Promise<UpgradeOutcome> => {
     const target = await getCodexRelayTarget(deps.accounts, req.rawHeaders, req.url ?? '', lifetime.signal);
     log.model = target.account.alias;
+    log.client = 'official';
+    log.mode = 'relay';
     const baseUrl = new URL(target.account.client.baseUrl);
+    const path = `${baseUrl.pathname.replace(/\/$/, '')}${target.path}`;
     const headers = filterRawHeaders(req.rawHeaders, UPGRADE_DROPPED_REQUEST_HEADERS);
     return sendWithCodexRelayAuth<UpgradeOutcome>(
       target,
       lifetime.signal,
-      (credentials) =>
-        new Promise((resolve, reject) => {
+      (credentials) => {
+        // Recorded inside the send closure, like the HTTP relay: a refused account check never
+        // reaches the wire and must not print a send line.
+        recordUpstreamSend(log, { method: req.method ?? 'GET', url: `${baseUrl.origin}${path}` });
+        return new Promise((resolve, reject) => {
           const request = createRawRequest({
             baseUrl,
-            path: `${baseUrl.pathname.replace(/\/$/, '')}${target.path}`,
+            path,
             method: req.method ?? 'GET',
             headers: replaceRawHeaders(headers, new Map([['host', baseUrl.host], ['authorization', `Bearer ${credentials.accessToken}`]])),
             signal: lifetime.signal,
@@ -355,7 +368,8 @@ export const relayCodexUpgrade = async (input: {
           request.on('response', (response) => resolve({ kind: 'response', response }));
           request.on('error', reject);
           request.end();
-        }),
+        });
+      },
       (outcome) => outcome.kind === 'response' && outcome.response.statusCode === 401,
       destroyOutcome,
     );

@@ -146,7 +146,8 @@ event: response.created ...
 [debug:2026-10-15T11:56:44Z]   content-type: text/event-stream; charset=utf-8
 [debug:2026-10-15T11:56:44Z] incoming POST /v1/responses response body:
 data: ...
-POST /v1/responses 200 812ms model=codex1/gpt-5.6
+POST /v1/responses 200 812ms model=codex1/gpt-5.6 client=third_party mode=gateway
+└─ POST https://chatgpt.com/backend-api/codex/responses model=gpt-5.6
 ```
 
 `--debug 0` 只有單行、沒有分隔線：
@@ -159,7 +160,21 @@ POST /v1/responses 200 812ms model=codex1/gpt-5.6
 - response body 等整個 response 結束後一次印出：可解析的 JSON 會縮排，SSE 保留原始文字；不影響送給 client 的串流。
 - 上游的 body（request 和 response）只印推論請求（路徑結尾是 `/responses` 或 `/messages` 的 POST）；OAuth refresh 的 body 含有 token，一律不印。
 - body 內容包含 system／developer prompt、`instructions`、`messages`／`input`、工具定義與工具呼叫／結果等欄位；prompt 文字不截斷、不遮罩，直接輸出到 stdout。
-- `--debug` 只加印 log，不會改變送出去的內容；沒加時 stdout 不會出現 `[debug:` 行，每個請求原本就有的 access log（例：`POST /v1/responses 200 812ms model=...`）維持不變。`codexN`／`claudeN` 表示那個上游 request 是哪個 home 送的（含該 home 的 token refresh headers）。
+- `--debug` 只加印 log，不會改變送出去的內容；沒加時 stdout 不會出現 `[debug:` 行，每個請求原本就有的 access log（例：`POST /v1/responses 200 812ms model=... client=third_party mode=gateway`）維持不變。`codexN`／`claudeN` 表示那個上游 request 是哪個 home 送的（含該 home 的 token refresh headers）。
+
+### Access log（每個請求都印，不需要 `--debug`）
+
+主行是收到的請求；每次實際送上游，另起一行以樹枝符號（`├─`，最後一筆為 `└─`）標明從屬：
+
+```text
+POST /v1/chat/completions 200 64ms model=claude1/claude-haiku-5-5 client=third_party mode=gateway ignored=store
+└─ POST https://api.anthropic.com/v1/messages?beta=true model=claude-haiku-5-5
+```
+
+- `client=official|third_party`：進入 gateway 的請求有無通過官方 CLI 形狀檢查（Claude 看 headers 與 `metadata.user_id`、Codex 看 relay 前綴與帳號比對）。這是形狀檢查，不是密碼學證明。
+- `mode=relay|gateway`：實際送上游的是什麼——`relay`＝官方 CLI 自己建的包原樣轉發（只換 token／account-id），`gateway`＝gateway 依官方形狀重建。`client=third_party` 一定是 `mode=gateway`；`client=official mode=relay` 就是「官方 CLI 對官方 API」。
+- `degraded=<reason>`：relay 檢查不過被降轉，一定伴隨 `mode=gateway`。
+- 樹枝行列出該次送出的 method + URL（可解析時加 model）；完全沒送到上游的請求（400 拒絕、404）不印樹枝行。401 恢復重試時，relay 路每次實際嘗試各印一行（非最後筆用 `├─`）。純 Codex relay 不解析 body，其樹枝行沒有 model。
 
 選填參數：
 
@@ -179,7 +194,7 @@ npm start -- --codex-home ~/.agent-gateway --claude-home ~/.agent-gateway-claude
 
 **不用重開 client CLI**。這不是補成官方 relay，而是像剛開啟的第三方 client：由 gateway 重組請求，使用 gateway 自己的 headers、釘住的 UA、Claude Messages 的 `cch` 和目標 home 的帳號／token（count_tokens 使用下述專用形狀，沒有 billing/cch）。相似度沿用自組路徑的 Claude **65**／Codex **82.35** 基準，**不是 100**；這不是本次重新量測的分數。
 
-- 可降轉：Claude 缺 `cch`／OAuth beta、帳號不符、alias 不符、count_tokens session 未綁定、送出前 home 換帳號；Codex 入口或送出前帳號不符。log 會標示 `degraded=<reason>`，丟掉的欄位記在 `ignored=`。非官方 Claude Code 的 Anthropic client 走 2b cloak 路徑，一定被降轉，一律標示 `degraded=not_official_client`。
+- 可降轉：Claude 缺 `cch`／OAuth beta、帳號不符、alias 不符、count_tokens session 未綁定、送出前 home 換帳號；Codex 入口或送出前帳號不符。log 會標示 `degraded=<reason>`（伴隨 `client=official mode=gateway`），丟掉的欄位記在 `ignored=`。非官方 Claude Code 的 Anthropic client 走 2b cloak 路徑，一定被降轉，一律標示 `degraded=not_official_client`（伴隨 `client=third_party mode=gateway`）。
 - 不降轉：非路徑形式或不在 relay 前綴下的 request target、gateway API key 的 401／403、body 不是 JSON 物件的 Claude relay 與 Codex `POST /responses`（Codex 其他 endpoint 的 body 原樣轉送，不需要是 JSON）。非官方 Anthropic client 的 2b 嚴格驗證不變。
 - 目標帳號由 model alias 選擇；無 alias 時用該 provider 第一個 home，不會跨 provider。該 provider 沒有帳號時回 400；無效 alias/model 與無法組裝的請求仍依既有驗證回錯誤。
 - Claude 官方內容寬鬆保留：原位置的 `role:"system"`、deferred tools、`tool_reference`、未知 message blocks 和 `output_config`；移除 client billing／精確 SDK/CLI 前綴，清掉 client cache markers、metadata 與 thinking 設定後由 gateway 重建。`context_management`、`diagnostics` 與其他未知頂層欄位丟掉並記錄。`safeguards` 照轉，加 `dangerous-tool-use-2026-09-03`；deferred tools／tool references 加 `advanced-tool-use-2025-11-20`。
@@ -411,7 +426,7 @@ message = client.messages.create(
 | `temperature`、`top_p`、`top_k` | 官方不送，拿掉並記入 `ignored=` |
 | `stop_sequences`、`service_tier`、`container`、`mcp_servers`、`context_management`、`inference_geo`，以及其他不認得的欄位 | 回 400，訊息列出欄位名稱 |
 
-`ignored=`：拿掉的欄位會出現在 gateway 的請求紀錄，例如 `POST /v1/messages 200 812ms model=claude1/claude-opus-5 ignored=temperature,thinking`；回應本身不會提示。
+`ignored=`：拿掉的欄位會出現在 gateway 的請求紀錄，例如 `POST /v1/messages 200 812ms model=claude1/claude-opus-5 client=third_party mode=gateway degraded=not_official_client ignored=temperature,thinking`；回應本身不會提示。
 
 回應：
 

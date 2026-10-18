@@ -5,13 +5,16 @@ import { resolveAccount } from '../accounts.js';
 import { createProxyError } from '../errors.js';
 import { normalizeResponsesRequest } from '../responses/normalizeResponsesRequest.js';
 import type { Json } from '../types.js';
-import { getForwardedHeaders, type ProxyDeps, type RequestLog, SSE_HEADERS, writeText } from '../utils/http.js';
+import { getForwardedHeaders, type ProxyDeps, recordUpstreamSend, type RequestLog, SSE_HEADERS, writeText } from '../utils/http.js';
 import { readSseChunks } from '../utils/sse.js';
 
 export const degradeCodexResponses = async (input: {
   body: Json; res: ServerResponse; deps: ProxyDeps; signal: AbortSignal; log: RequestLog;
 }): Promise<void> => {
   const { body, res, deps, signal, log } = input;
+  // The relay checks failed, so this send is gateway-built with the home's own identity.
+  log.client = 'official';
+  log.mode = 'gateway';
   const { account, slug } = resolveAccount(deps.accounts, body.model);
   if (account.provider !== 'codex') throw createProxyError({ status: 400, message: 'Codex fallback requires a Codex account' });
   const normalized = normalizeResponsesRequest({ ...body, model: slug }, await account.catalog.findModel(slug));
@@ -19,6 +22,7 @@ export const degradeCodexResponses = async (input: {
     typeof item.encrypted_content === 'string' && deps.reasoningStore?.has(account.alias, item.encrypted_content) === true));
   log.model = `${account.alias}/${slug}`;
   log.ignoredKeys = normalized.strippedKeys;
+  recordUpstreamSend(log, { method: 'POST', url: `${account.client.baseUrl}/responses`, model: normalized.request.model });
   const upstream = await account.client.postResponses(normalized.request, { sessionId: normalized.sessionId, isResponsesLite: normalized.isResponsesLite, signal });
   log.upstreamRequestId = upstream.headers.get('x-oai-request-id') ?? undefined;
   if (!upstream.body) throw new Error('Upstream response has no body');

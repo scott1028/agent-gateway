@@ -66,7 +66,10 @@ describe('Claude relay fallback', () => {
       await response.text();
       expect(calls).toHaveLength(mode === 'reject' ? 0 : 1);
       if (mode === 'degrade') {
-        expect(vi.mocked(console.log).mock.calls.flat().join('\n')).toContain(`degraded=${reason}`);
+        // client=official (the relay checks saw the official CLI) with mode=gateway (the send was rebuilt).
+        const logged = vi.mocked(console.log).mock.calls.flat().join('\n');
+        expect(logged).toContain('client=official mode=gateway');
+        expect(logged).toContain(`degraded=${reason}`);
         expect(calls[0]?.headers['user-agent']).toContain('claude-cli/2.1.299');
         expect(calls[0]?.body).not.toHaveProperty('context_management');
         expect(calls[0]?.body).not.toHaveProperty('diagnostics');

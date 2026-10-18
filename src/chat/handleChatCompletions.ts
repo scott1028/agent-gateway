@@ -6,13 +6,16 @@ import { createProxyError, isProxyError, toOpenAiErrorBody } from '../errors.js'
 import { collectResponse } from '../responses/collectResponse.js';
 import { normalizeResponsesRequest } from '../responses/normalizeResponsesRequest.js';
 import { formatSseData, parseSseStream } from '../utils/sse.js';
-import { getForwardedHeaders, getRequestHeader, type HandlerContext, sendJson, SSE_HEADERS, writeText } from '../utils/http.js';
+import { getForwardedHeaders, getRequestHeader, type HandlerContext, recordUpstreamSend, sendJson, SSE_HEADERS, writeText } from '../utils/http.js';
 import { createChatStreamState, reduceChatStream } from './reduceChatStream.js';
 import { toChatCompletion } from './toChatCompletion.js';
 import { toResponsesRequest } from './toResponsesRequest.js';
 import type { ResponsesEvent } from '../types.js';
 
 export const handleChatCompletions = async ({ body, req, res, signal, deps, log }: HandlerContext): Promise<void> => {
+  // This endpoint is never a relay: the gateway always builds the upstream request itself.
+  log.client = 'third_party';
+  log.mode = 'gateway';
   const modelId = await getRequestModelId(deps, body.model);
   // Claude checks the original body first: the conversion below drops non-text parts of
   // system/assistant/tool messages, which would silently change a Claude conversation.
@@ -35,6 +38,7 @@ export const handleChatCompletions = async ({ body, req, res, signal, deps, log 
     const model = await account.catalog.findModel(slug);
     const { request, sessionId, isResponsesLite } = normalizeResponsesRequest({ ...draftRequest, model: slug }, model);
     log.model = `${account.alias}/${request.model}`;
+    recordUpstreamSend(log, { method: 'POST', url: `${account.client.baseUrl}/responses`, model: request.model });
     const upstream = await account.client.postResponses(request, {
       sessionId,
       isResponsesLite,

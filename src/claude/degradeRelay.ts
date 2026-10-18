@@ -2,11 +2,11 @@
 // References: claude-code native 2.1.302 AKn and SDK accumulator; protocol diff §13.
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { resolveAccount } from '../accounts.js';
-import { CLAUDE_CODE_BETA, CLAUDE_CONTEXT_MANAGEMENT_BETA, CLAUDE_INTERLEAVED_THINKING_BETA } from '../constants.js';
+import { CLAUDE_CODE_BETA, CLAUDE_CONTEXT_MANAGEMENT_BETA, CLAUDE_INTERLEAVED_THINKING_BETA, CLAUDE_MESSAGES_PATH } from '../constants.js';
 import { createProxyError } from '../errors.js';
 import { getSessionId } from '../responses/normalizeResponsesRequest.js';
 import type { Json } from '../types.js';
-import { type ProxyDeps, type RequestLog, sendJson, SSE_HEADERS, writeText } from '../utils/http.js';
+import { type ProxyDeps, recordUpstreamSend, type RequestLog, sendJson, SSE_HEADERS, writeText } from '../utils/http.js';
 import { getRawHeader } from '../utils/rawRelay.js';
 import { readSseChunks } from '../utils/sse.js';
 import { assembleClaudeRequest } from './assembleRequest.js';
@@ -24,6 +24,9 @@ export const degradeClaudeMessages = async (input: {
   deps: ProxyDeps; log: RequestLog; isCountTokens: boolean;
 }): Promise<void> => {
   const { req, res, body, signal, deps, log, isCountTokens } = input;
+  // The relay checks failed, so this send is gateway-built with the home's own identity.
+  log.client = 'official';
+  log.mode = 'gateway';
   const { account, slug } = resolveAccount(deps.accounts, body.model);
   if (account.provider !== 'claude') throw createProxyError({ status: 400, message: 'Claude fallback requires a Claude account' });
   const normalized = toClaudeDegradedRequest(body, (block) => {
@@ -61,6 +64,7 @@ export const degradeClaudeMessages = async (input: {
       fieldNames: ANTHROPIC_FIELD_NAMES, extraBody: normalized.extraBody, extraBetas: normalized.extraBetas,
     });
   }
+  recordUpstreamSend(log, { method: 'POST', url: `${account.client.baseUrl}${isCountTokens ? '/v1/messages/count_tokens?beta=true' : CLAUDE_MESSAGES_PATH}`, model: slug });
   const upstream = await account.client.postMessages(prepared.request, { sessionId, betas: prepared.betas, signal, ...(isCountTokens ? { isCountTokens: true } : {}) });
   log.upstreamRequestId = upstream.headers.get('request-id') ?? undefined;
   if (!upstream.body) throw new Error('Upstream response has no body');

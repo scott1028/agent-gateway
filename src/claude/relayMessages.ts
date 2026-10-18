@@ -9,7 +9,7 @@ import type { Account, ClaudeAccount } from '../accounts.js';
 import { CLAUDE_OAUTH_BETA, CLAUDE_RELAY_SESSION_MAX_ENTRIES, MODEL_ID_SEPARATOR } from '../constants.js';
 import { createProxyError, isProxyError, type ProxyError } from '../errors.js';
 import type { Json } from '../types.js';
-import type { ProxyDeps, RequestLog } from '../utils/http.js';
+import { recordUpstreamSend, type ProxyDeps, type RequestLog } from '../utils/http.js';
 import { filterRawHeaders, getRawHeader, pipeRawResponse, RELAY_DROPPED_REQUEST_HEADERS } from '../utils/rawRelay.js';
 import { degradeClaudeMessages } from './degradeRelay.js';
 import { readClaudeAccountMetadata } from './auth.js';
@@ -265,13 +265,22 @@ export const getClaudeCountTokensRequest = (input: {
 // cancels the upstream request.
 const sendClaudeRelay = async (res: ServerResponse, relay: ClaudeRelayRequest, signal: AbortSignal, log: RequestLog): Promise<void> => {
   log.model = `${relay.account.alias}/${relay.model}`;
+  log.client = 'official';
+  log.mode = 'relay';
   // Local file read only, no OAuth preflight: the body stays bound to the client's account, so a
   // home that now holds another login is refused instead of re-signed for it.
+  // Same URL the transport builds (src/claude/client.ts sendRawMessages), for the access log;
+  // postRawMessages runs verifyAccount before every attempt, so recording after it prints a send
+  // line only for sends that reach the wire.
+  const target = new URL(relay.account.client.baseUrl);
+  const sendUrl = `${target.origin}${target.pathname.replace(/\/$/, '')}${relay.pathAndQuery}`;
   const verifyAccount = async (): Promise<void> => {
-    if ((await readClaudeAccountMetadata(relay.account.homePath)).accountUuid === relay.accountUuid) return;
-    throw toRelayError(
-      `Gateway Claude home ${relay.account.alias} is now logged in to a different account than Claude Code, so the request was not sent. Log that home back in to the same account as Claude Code and retry.`, 'account_changed',
-    );
+    if ((await readClaudeAccountMetadata(relay.account.homePath)).accountUuid !== relay.accountUuid) {
+      throw toRelayError(
+        `Gateway Claude home ${relay.account.alias} is now logged in to a different account than Claude Code, so the request was not sent. Log that home back in to the same account as Claude Code and retry.`, 'account_changed',
+      );
+    }
+    recordUpstreamSend(log, { method: 'POST', url: sendUrl, model: relay.model });
   };
   const upstream = await relay.account.client.postRawMessages({ body: relay.body, headers: relay.headers, pathAndQuery: relay.pathAndQuery, signal, verifyAccount });
   log.upstreamRequestId = getRawHeader(upstream.rawHeaders, 'request-id');

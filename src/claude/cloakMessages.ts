@@ -6,10 +6,11 @@
 import type { ServerResponse } from 'node:http';
 import path from 'node:path';
 import { resolveAccount } from '../accounts.js';
+import { CLAUDE_MESSAGES_PATH } from '../constants.js';
 import { createProxyError } from '../errors.js';
 import { getSessionId } from '../responses/normalizeResponsesRequest.js';
 import type { Json } from '../types.js';
-import { type ProxyDeps, type RequestLog, sendJson, SSE_HEADERS, writeText } from '../utils/http.js';
+import { recordUpstreamSend, type ProxyDeps, type RequestLog, sendJson, SSE_HEADERS, writeText } from '../utils/http.js';
 import { assembleClaudeRequest } from './assembleRequest.js';
 import { getClaudeLoginHint, readClaudeAccountMetadata } from './auth.js';
 import { collectClaudeMessage } from './collectMessage.js';
@@ -42,6 +43,8 @@ export const cloakClaudeMessages = async (input: {
   const { res, body, signal, deps, log } = input;
   // Every request reaching here is gateway-rebuilt, so the default access log marks it even when
   // validation later rejects it before any upstream send.
+  log.client = 'third_party';
+  log.mode = 'gateway';
   log.degraded = 'not_official_client';
   const nativeRequest = toClaudeNativeRequest(body);
   if (nativeRequest.ignoredKeys.length > 0) log.ignoredKeys = nativeRequest.ignoredKeys;
@@ -72,6 +75,7 @@ export const cloakClaudeMessages = async (input: {
   });
 
   log.model = `${account.alias}/${slug}`;
+  recordUpstreamSend(log, { method: 'POST', url: `${account.client.baseUrl}${CLAUDE_MESSAGES_PATH}`, model: prepared.request.model });
   const upstream = await account.client.postMessages(prepared.request, { sessionId, betas: prepared.betas, signal });
   log.upstreamRequestId = upstream.headers.get('request-id') ?? undefined;
   if (!upstream.body) throw new Error('Upstream response has no body');

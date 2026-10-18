@@ -51,10 +51,19 @@ const logRequest = (req: IncomingMessage, statusCode: number, startedAtMs: numbe
     `${Date.now() - startedAtMs}ms`,
     log.model ? `model=${log.model}` : '',
     log.upstreamRequestId ? `upstream=${log.upstreamRequestId}` : '',
+    log.client ? `client=${log.client}` : '',
+    log.mode ? `mode=${log.mode}` : '',
     log.degraded ? `degraded=${log.degraded}` : '',
     log.ignoredKeys?.length ? `ignored=${log.ignoredKeys.join(',')}` : '',
   ];
   console.log(fields.filter((field) => field !== '').join(' '));
+  // One branch line per upstream model send, in send order; requests that never reached
+  // upstream print none. The tree glyph marks each line as belonging to the request above.
+  const sends = log.upstreamSends ?? [];
+  sends.forEach((send, index) => {
+    const branch = index === sends.length - 1 ? '└─' : '├─';
+    console.log(`${branch} ${send.method} ${send.url}${send.model === undefined ? '' : ` model=${send.model}`}`);
+  });
 };
 
 // The gateway key is a bare secret, not a scheme plus token, so its whole value is hidden; Anthropic

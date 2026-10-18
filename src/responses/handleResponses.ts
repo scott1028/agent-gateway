@@ -3,7 +3,7 @@ import { parseClaudeSseStream, readClaudeAccountMetadata, startClaudeCall, trans
 import { TURN_STATE_HEADER } from '../constants.js';
 import { createProxyError, isProxyError } from '../errors.js';
 import { formatSseEvent, parseSseStream, readSseChunks } from '../utils/sse.js';
-import { getForwardedHeaders, getRequestHeader, type HandlerContext, sendJson, SSE_HEADERS, writeText } from '../utils/http.js';
+import { getForwardedHeaders, getRequestHeader, type HandlerContext, recordUpstreamSend, sendJson, SSE_HEADERS, writeText } from '../utils/http.js';
 import { collectResponse } from './collectResponse.js';
 import { normalizeResponsesRequest } from './normalizeResponsesRequest.js';
 import { assertSameLogin, createResponseRecorder, expandPreviousResponse, observeEvents } from './responseStore.js';
@@ -35,6 +35,9 @@ const writeStreamFailure = async (res: ServerResponse, meta: ClaudeStreamMeta, s
 };
 
 export const handleResponses = async ({ body: rawBody, req, res, signal, deps, log, responseStore }: HandlerContext): Promise<void> => {
+  // This endpoint is never a relay: the gateway always builds the upstream request itself.
+  log.client = 'third_party';
+  log.mode = 'gateway';
   const modelId = await getRequestModelId(deps, rawBody.model);
   const { account, slug } = resolveAccount(deps.accounts, modelId);
   // Both providers see the expanded full input, exactly what a full-history client would send.
@@ -85,6 +88,7 @@ export const handleResponses = async ({ body: rawBody, req, res, signal, deps, l
   log.model = `${account.alias}/${request.model}`;
   log.ignoredKeys = strippedKeys;
 
+  recordUpstreamSend(log, { method: 'POST', url: `${account.client.baseUrl}/responses`, model: request.model });
   const upstream = await account.client.postResponses(request, {
     sessionId,
     isResponsesLite,

@@ -154,7 +154,11 @@ describe('POST /v1/messages downgrade path', () => {
     await vi.waitFor(() => expect(log.mock.calls.flat().join('\n')).toContain('model=claude1/claude-opus-5'));
     expect(log.mock.calls.flat().join('\n')).toContain('ignored=temperature');
     // The downgrade shows in the default access log, without --debug.
-    expect(log.mock.calls.flat().join('\n')).toContain('degraded=not_official_client');
+    const logged = log.mock.calls.flat().join('\n');
+    expect(logged).toContain('degraded=not_official_client');
+    // Third-party client, gateway-built send, and the tree-bracketed upstream send line.
+    expect(logged).toContain('client=third_party mode=gateway');
+    expect(logged).toMatch(/\n└─ POST http:\/\/127\.0\.0\.1:\d+\/v1\/messages\?beta=true model=claude-opus-5/);
   });
 
   it('aggregates a stream:false reply into one Message (thinking signature, tool input, usage)', async () => {
@@ -325,7 +329,11 @@ describe('official Claude Code requests stay on the native relay', () => {
     expect(relayUpstreamBodies).toEqual([RELAY_BODY]);
     expect(upstreamCalls).toHaveLength(0);
     await vi.waitFor(() => expect(log.mock.calls.flat().join('\n')).toContain('POST /v1/messages'));
-    expect(log.mock.calls.flat().join('\n')).not.toContain('degraded=');
+    const logged = log.mock.calls.flat().join('\n');
+    expect(logged).not.toContain('degraded=');
+    // The official CLI's own bytes were relayed; the branch line is that upstream send.
+    expect(logged).toContain('client=official mode=relay');
+    expect(logged).toMatch(/\n└─ POST http:\/\/127\.0\.0\.1:\d+\/v1\/messages\?beta=true model=/);
   });
 
   it('downgrades the same body once the client no longer looks like Claude Code', async () => {

@@ -19,7 +19,25 @@ export type ProxyDeps = {
   codexWebSocketConnectTimeoutMs?: number;
 };
 
-export type RequestLog = { degraded?: string; model?: string; upstreamRequestId?: string; ignoredKeys?: string[] };
+// One upstream model send as it actually left the gateway; the access log prints one indented
+// line per entry. Codex pure relays do not parse the body, so they may carry no model.
+export type UpstreamSend = { method: string; url: string; model?: string };
+
+// client: who presented the request (official CLI shape checks, not a cryptographic proof);
+// mode: what went upstream (relay = client's own bytes, gateway = gateway-built).
+export type RequestLog = {
+  degraded?: string;
+  client?: 'official' | 'third_party';
+  mode?: 'relay' | 'gateway';
+  upstreamSends?: UpstreamSend[];
+  model?: string;
+  upstreamRequestId?: string;
+  ignoredKeys?: string[];
+};
+
+export const recordUpstreamSend = (log: RequestLog, send: UpstreamSend): void => {
+  (log.upstreamSends ??= []).push(send);
+};
 
 export type HandlerContext = {
   body: Json;

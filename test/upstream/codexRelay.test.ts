@@ -215,6 +215,11 @@ describe('HTTP relay', () => {
     expect(reply.status).toBe(200);
     expect(withoutHopByHop(reply.rawHeaders)).toEqual(['Content-Type', 'application/json', 'x-models-etag', 'etag-fixture', 'x-request-id', 'req-fixture-1']);
     expect(reply.body.toString('utf8')).toBe('{"models":[]}');
+    // Access log: official client, relay mode, and the tree-bracketed upstream send line (no
+    // model: a pure relay never parses the body).
+    const logged = vi.mocked(console.log).mock.calls.flat().join('\n');
+    expect(logged).toContain('client=official mode=relay');
+    expect(logged).toMatch(new RegExp(`\\n└─ GET ${getUpstreamBaseUrl().replace(/[/.]/g, '\\$&')}/models`));
   });
 
   it('relays POST /responses byte for byte, including headers named like Object.prototype members', async () => {
@@ -229,6 +234,10 @@ describe('HTTP relay', () => {
     expect(upstreamRequests[0]?.rawHeaders).toEqual(getExpectedUpstreamHeaders(port, clientHeaders, ACCESS_A1, FIXTURE.responses.body));
     expect(upstreamRequests[0]?.rawHeaders.slice(-6)).toEqual(['Constructor', 'client-marker', '__proto__', 'client-marker', 'X-Ordinary', 'client-marker']);
     expect(reply.body.toString('utf8')).toBe('event: response.completed\ndata: {"type":"response.completed"}\n\n');
+    // The relayed POST /responses prints its upstream send line without a model (body not parsed).
+    const logged = vi.mocked(console.log).mock.calls.flat().join('\n');
+    expect(logged).toContain('client=official mode=relay');
+    expect(logged).toMatch(new RegExp(`\\n└─ POST ${getUpstreamBaseUrl().replace(/[/.]/g, '\\$&')}/responses$`, 'm'));
   });
 
   it('keeps repeated headers in their original order and casing and adds no Connection header', async () => {

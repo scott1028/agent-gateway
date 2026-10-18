@@ -73,6 +73,10 @@ describe.each([undefined, 0, 1, 2, 3] as const)('debug logging at level %s', (de
       expect(upstreamBody.model).toBe('gpt-x');
       expect(upstreamBody.temperature).toBeUndefined();
       expect((upstreamBody.input as Json[])[0]?.role).toBe('developer');
+      // The access log marks these endpoints third_party/gateway (never a relay) and prints the
+      // tree-bracketed upstream send line, without --debug.
+      expect(logs).toContain('client=third_party mode=gateway');
+      expect(logs).toContain(`└─ POST ${config.baseUrl}/responses model=gpt-x`);
       const showsDownstream = debugLevel === 2 || debugLevel === 3;
       const showsUpstream = debugLevel === 1 || debugLevel === 3;
       if (debugLevel === undefined) {
@@ -101,7 +105,9 @@ describe.each([undefined, 0, 1, 2, 3] as const)('debug logging at level %s', (de
           expect(calls.indexOf(`${PREFIX} incoming POST ${pathname}`)).toBe(0);
         }
         if (debugLevel === 0) {
-          expect(logs).not.toContain('─');
+          // The separator hop never appears at level 0; the access log's own └─ branch glyph is
+          // not a separator.
+          expect(logs).not.toContain(SEPARATOR);
           expect(logs).not.toContain('\n\n');
         }
       }

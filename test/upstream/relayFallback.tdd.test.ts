@@ -83,7 +83,10 @@ describe('Codex relay fallback', () => {
         expect((call.body.input as Json[])[0]?.type).toBe('additional_tools');
         expect((call.body.input as Json[])[1]?.role).toBe('developer');
         expect(call.headers['user-agent']).toContain('agent-gateway');
-        expect(vi.mocked(console.log).mock.calls.flat().join('\n')).toContain(`degraded=${changed ? 'account_changed' : 'account_mismatch'}`);
+        // The access log shows the official client, the gateway-built send and the reason together.
+        const logged = vi.mocked(console.log).mock.calls.flat().join('\n');
+        expect(logged).toContain('client=official mode=gateway');
+        expect(logged).toContain(`degraded=${changed ? 'account_changed' : 'account_mismatch'}`);
       }
     }
   });

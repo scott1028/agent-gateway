@@ -4,8 +4,9 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { createProxyError } from '../errors.js';
+import { CLAUDE_MESSAGES_PATH } from '../constants.js';
 import type { Json } from '../types.js';
-import type { ProxyDeps, RequestLog } from '../utils/http.js';
+import { recordUpstreamSend, type ProxyDeps, type RequestLog } from '../utils/http.js';
 import { getSessionId } from '../responses/normalizeResponsesRequest.js';
 import type { ClaudeAccount } from '../accounts.js';
 import { getClaudeLoginHint, readClaudeAccountMetadata } from './auth.js';
@@ -102,6 +103,7 @@ export const startClaudeCall = async (input: {
   });
 
   log.model = `${account.alias}/${slug}`;
+  recordUpstreamSend(log, { method: 'POST', url: `${account.client.baseUrl}${CLAUDE_MESSAGES_PATH}`, model: prepared.request.model });
   const upstream = await account.client.postMessages(prepared.request, { sessionId, betas: prepared.betas, signal });
   log.upstreamRequestId = upstream.headers.get('request-id') ?? undefined;
 
