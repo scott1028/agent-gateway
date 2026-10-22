@@ -1,5 +1,7 @@
 # agent-gateway 與官方 Claude Code：Claude Messages API 通訊差異報告
 
+> 2026-10-22 注：本文件的 binary offset、pin 版本與分數屬歷史基準（native 2.1.299、references/claude-code `9b4f0d6`、CLIProxyAPI v8.0.29）；這些 pin 其後分別更新，身分基線仍未變，新行為（Ahn 空 text 清理、上下文耗盡失敗）見 [上游更新與對齊報告](UPSTREAM_UPDATE_2026-10-22.md)。
+
 2026-10-15 更新：依 EasyCLIProxyAPI 的實際核心 **CLIProxyAPI v8.0.29** 重新比對，已修正 final-body CCH、四個 subscription beta、request ID 與 caller system 位置。簡短 PoC 曾通過，但 OpenCode 完整請求仍因 top-level caller system 回傳 extra usage 拒絕；移到對話中的 system 後，真正 OpenCode CLI 文字及 `read` 工具續接皆成功。沿用 `.tmp/.credentials.json`。比較版本、單一變因證據與未匹配的 legacy/cache/transport 範圍見 [重新比對報告](CLAUDE_EASYCLIPROXY_COMPARISON.md)。
 
 ## 1. 結論

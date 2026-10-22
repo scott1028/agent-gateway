@@ -3,7 +3,10 @@ export const REFRESH_URL = 'https://auth.openai.com/oauth/token';
 export const OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 export const ORIGINATOR = 'codex_cli_rs';
 // Backend filters the model catalog by client version (0.100.0 only returns 1 model).
-export const DEFAULT_CLIENT_VERSION = '0.162.1';
+// Latest stable official release: references/codex tag rust-v0.163.0 (Cargo workspace
+// version 0.163.0; official UA/version header = CARGO_PKG_VERSION). Catalog effect of
+// this bump is unverified live (no PoC run in this batch).
+export const DEFAULT_CLIENT_VERSION = '0.163.0';
 export const DEFAULT_PORT = 8765;
 export const DEFAULT_HOST = '127.0.0.1';
 // Only labels the context window we advertise in /v1/models; it never limits a request.
@@ -68,9 +71,10 @@ export const CODEX_REJECTED_UPGRADE_BODY_BYTES = 16 * 1024;
 export const CLAUDE_BASE_URL = 'https://api.anthropic.com';
 export const CLAUDE_TOKEN_URL = 'https://platform.claude.com/v1/oauth/token';
 export const CLAUDE_OAUTH_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
-// Pinned Claude reference release, matching references/claude-code (v2.1.299-1-g9b4f0d6) and the
-// native binary VERSION at 218027148. The User-Agent mirrors the official $0() generator with this
-// version (user-approved exception to the own-identity UA rule for the Claude path only).
+// Native binary 2.1.299 identity baseline (VERSION at 218027148). references/claude-code now pins
+// v2.1.308 (public repo); this profile intentionally stays 2.1.299 until a full identity/model
+// re-audit (docs/UPSTREAM_UPDATE_2026-10-22.md). The User-Agent mirrors the official $0()
+// generator with this version (user-approved exception to the own-identity UA rule, Claude only).
 export const CLAUDE_CLI_VERSION = '2.1.299';
 // Project-owned multi-account routing for Claude homes, mirroring the Codex alias scheme.
 export const CLAUDE_HOME_ALIAS_PREFIX = 'claude';

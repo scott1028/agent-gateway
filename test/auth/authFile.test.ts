@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 import {
   applyRefreshResult,
   getCredentialsFromAuth,
+  getRefreshReason,
   readAuthFile,
-  shouldRefresh,
   writeAuthFile,
 } from '../../src/auth/authFile.js';
 import { decodeJwtPayload, getAuthClaims, getJwtExpiryMs } from '../../src/auth/jwt.js';
@@ -40,16 +40,19 @@ describe('jwt', () => {
   });
 });
 
-describe('shouldRefresh', () => {
-  it('refreshes within 5 minutes of expiry', () => {
-    expect(shouldRefresh(toAuth({ exp: NOW_MS / 1000 + 4 * 60 }), NOW_MS)).toBe(true);
-    expect(shouldRefresh(toAuth({ exp: NOW_MS / 1000 + 6 * 60 }), NOW_MS)).toBe(false);
+// Mirrors references/codex @b4ad33d1 manager.rs proactive_refresh_reason: which refresh
+// branch fires. The 5-minute expiry bound is inclusive (<=); the 8-day age bound is
+// exclusive (<). Same policy cases as the removed boolean rule.
+describe('getRefreshReason', () => {
+  it('reports proactive_expiry within 5 minutes of expiry', () => {
+    expect(getRefreshReason(toAuth({ exp: NOW_MS / 1000 + 4 * 60 }), NOW_MS)).toBe('proactive_expiry');
+    expect(getRefreshReason(toAuth({ exp: NOW_MS / 1000 + 6 * 60 }), NOW_MS)).toBeUndefined();
   });
 
-  it('falls back to 8-day last_refresh age when exp is missing', () => {
-    expect(shouldRefresh(toAuth({}, '2026-10-01T00:00:00Z'), NOW_MS)).toBe(true);
-    expect(shouldRefresh(toAuth({}, '2026-10-10T00:00:00Z'), NOW_MS)).toBe(false);
-    expect(shouldRefresh(toAuth({}), NOW_MS)).toBe(false);
+  it('reports scheduled from 8-day last_refresh age when exp is missing', () => {
+    expect(getRefreshReason(toAuth({}, '2026-10-01T00:00:00Z'), NOW_MS)).toBe('scheduled');
+    expect(getRefreshReason(toAuth({}, '2026-10-10T00:00:00Z'), NOW_MS)).toBeUndefined();
+    expect(getRefreshReason(toAuth({}), NOW_MS)).toBeUndefined();
   });
 });
 

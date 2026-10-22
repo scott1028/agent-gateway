@@ -1,5 +1,7 @@
 # agent-gateway 與 Unsloth：ChatGPT Codex backend 通訊差異報告
 
+> 2026-10-22 注：本報告的分數與基準為歷史快照（codex pin `0d58012`）。references/codex 其後已更新到 main 頭 `b4ad33d1`，本文件未據此重評；更新與對齊分類見 [上游更新與對齊報告](UPSTREAM_UPDATE_2026-10-22.md)。
+
 ## 1. 結論
 
 **核心通訊模式相似，但 agent-gateway 並不是 Unsloth 的等價實作；部分行為反而更接近本機較新版官方 Codex。**

@@ -49,6 +49,7 @@ agent-gateway 是一個跑在你電腦上的小轉接站。它讓其他 AI 工�
 - 兩條原樣轉送的 100 是另計的：上游請求由官方 client 自己產生，可判定的項目都符合官方。Claude 用同一份 30 項 rubric，以 client 實際使用的 native 2.1.302 為基準：可判定的 28 項全部符合，D5（TLS 指紋）和 F2（完整 401 策略）因官方規則未確認維持未知，30 項補齊後的範圍是 93.33–100。Codex 是 17／17。這是只對官方計分，不是和 CLIProxyAPI 取共同集合的算法，不能直接和 65／42.78 比較。
 - 100 沒有涵蓋：TLS 與 HTTP 實作不同（gateway 用 Node `https`，官方是 Bun、reqwest、tungstenite）；token 是同帳號的另一份憑證；`host`、`content-length` 是這段連線的值；Claude 的 count_tokens 只轉送已綁定的 session。分數不代表行為完全等同官方。
 - 評估日期與基準：原有評分是 2026-10-17，Claude 官方證據沿用 native 2.1.299 的記錄；兩條原樣轉送列是 2026-10-18 新增，基準是 native 2.1.302 和 Codex CLI 0.163.0（Claude 的 A1–A4 仍沿用 2.1.299 的判定）。
+- 2026-10-22 更新：三個上游參考 pin 已更新並對齊兩項 Claude 與一項 Codex 行為，上方分數與歷史基準不變，細節見 [上游更新與對齊報告](docs/UPSTREAM_UPDATE_2026-10-22.md)。
 
 ## 快速開始
 

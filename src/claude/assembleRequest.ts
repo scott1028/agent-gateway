@@ -93,6 +93,20 @@ const markTailBlock = (blocks: Json[], index: number): void => {
   blocks[index] = { ...blocks[index], cache_control: { type: 'ephemeral' } };
 };
 
+// Mirrors native 2.1.307 Ahn (static read of the official binary, byte 250597395): user-array
+// text blocks with non-string or blank text are dropped; an emptied list becomes the exact
+// [{type:"text",text:"(no content)"}] placeholder. Returns undefined when nothing is removed.
+const cleanUserTextBlocks = (blocks: Json[]): Json[] | undefined => {
+  let kept: Json[] | undefined;
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index] as Json | undefined;
+    if (block?.type === 'text' && (typeof block.text !== 'string' || (block.text as string).trim() === '')) kept ??= blocks.slice(0, index);
+    else kept?.push(block as Json);
+  }
+  if (kept === undefined) return undefined;
+  return kept.length > 0 ? kept : [{ type: 'text', text: '(no content)' }];
+};
+
 export const markLastEligibleMessage = (messages: Json[]): void => {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const content = messages[index]?.content;
@@ -151,6 +165,14 @@ export const assembleClaudeRequest = (input: AssembleClaudeRequestInput): Prepar
   systemBlocks.push({ type: 'text', text: CLAUDE_CLI_SYSTEM_PREFIX, cache_control: { type: 'ephemeral' } });
   const callerText = callerTexts.join('\n\n');
   request.system = systemBlocks;
+  // Ahn cleanup first: the native user builder applies cache markers to Ahn's output, so the
+  // marker below always lands on a surviving block. Signed assistant content is untouched.
+  for (let index = 0; index < messages.length; index += 1) {
+    const message = messages[index];
+    if (message?.role !== 'user' || !Array.isArray(message.content)) continue;
+    const cleanedBlocks = cleanUserTextBlocks(message.content as Json[]);
+    if (cleanedBlocks !== undefined) messages[index] = { ...message, content: cleanedBlocks };
+  }
   markLastEligibleMessage(messages);
   if (callerText !== '') {
     const callerBlock = { type: 'text', text: callerText, cache_control: { type: 'ephemeral' } };

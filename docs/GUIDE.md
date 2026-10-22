@@ -89,7 +89,7 @@ npm start -- --help     # 列出選項與環境變數
 | `AGENT_GATEWAY_HOME` | 未設定 | 單一 Codex home，讀寫其中的 `auth.json` |
 | `AGENT_GATEWAY_CODEX_HOMES` | 未設定 | 多個 Codex home，用 `:` 分隔（例：`$HOME/.agent-gateway:$HOME/.agent-gateway-2`）；沒給 `--codex-home` 時與 `AGENT_GATEWAY_HOME` 同時設定會啟動報錯 |
 | `AGENT_GATEWAY_CLAUDE_HOMES` | 未設定 | 多個 Claude home，用 `:` 分隔；沒給 `--claude-home` 時才生效 |
-| `CODEX_CLIENT_VERSION` | `0.162.1` | backend 依此版本過濾模型清單，太舊會只剩少數模型 |
+| `CODEX_CLIENT_VERSION` | `0.163.0` | backend 依此版本過濾模型清單，太舊會只剩少數模型；2026-10-22 起預設從 `0.162.1` 改為穩定 release `rust-v0.163.0` 的版本（見 [上游更新與對齊報告](UPSTREAM_UPDATE_2026-10-22.md)） |
 
 也可以用 CLI 參數 `--codex-home <path>`、`--claude-home <path>`（皆可重複，也支援 `--flag=<path>`），例如 `npm start -- --codex-home ~/.agent-gateway --claude-home ~/.agent-gateway-claude`。
 

@@ -31,14 +31,19 @@ export const getCredentialsFromAuth = (auth: AuthFile): Credentials | undefined 
   };
 };
 
-// Same rule as Codex: refresh 5 min before expiry, or after 8 days when exp is unknown.
-export const shouldRefresh = (auth: AuthFile, nowMs: number): boolean => {
+// refresh_reason values sent to AuthAPI. Mirrors references/codex @b4ad33d1
+// login/src/oauth/client.rs RefreshReason::as_str; no `forced` (no gateway entrypoint).
+export type RefreshReason = 'proactive_expiry' | 'scheduled' | 'unauthorized_recovery';
+
+// Mirrors references/codex @b4ad33d1 manager.rs proactive_refresh_reason: 5 min before
+// expiry, or after 8 days when exp is unknown; returns which branch fired.
+export const getRefreshReason = (auth: AuthFile, nowMs: number): RefreshReason | undefined => {
   const accessToken = auth.tokens?.access_token;
-  if (!accessToken) return false;
+  if (!accessToken) return undefined;
   const expiryMs = getJwtExpiryMs(accessToken);
-  if (expiryMs !== undefined) return expiryMs <= nowMs + REFRESH_BEFORE_EXPIRY_MS;
+  if (expiryMs !== undefined) return expiryMs <= nowMs + REFRESH_BEFORE_EXPIRY_MS ? 'proactive_expiry' : undefined;
   const lastRefreshMs = auth.last_refresh ? Date.parse(auth.last_refresh) : Number.NaN;
-  return Number.isFinite(lastRefreshMs) && lastRefreshMs < nowMs - REFRESH_FALLBACK_AGE_MS;
+  return Number.isFinite(lastRefreshMs) && lastRefreshMs < nowMs - REFRESH_FALLBACK_AGE_MS ? 'scheduled' : undefined;
 };
 
 // Only overwrite returned tokens; keep account_id and unknown keys as they are.

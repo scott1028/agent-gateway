@@ -111,7 +111,7 @@ describe('getConfig', () => {
   it('uses the default port and client version', () => {
     const config = getConfig({ AGENT_GATEWAY_HOME: '/tmp/gw' });
     expect(config.port).toBe(8765);
-    expect(config.clientVersion).toBe('0.162.1');
+    expect(config.clientVersion).toBe('0.163.0');
     expect(config.codexHomes).toEqual([{ alias: 'codex1', homePath: '/tmp/gw', authPath: '/tmp/gw/auth.json' }]);
   });
 

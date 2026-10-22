@@ -2,7 +2,7 @@ import path from 'node:path';
 import { OAUTH_CLIENT_ID } from '../constants.js';
 import { createProxyError, isProxyError, type ProxyError } from '../errors.js';
 import type { AuthFile, Credentials, Json, RefreshResult } from '../types.js';
-import { applyRefreshResult, getCredentialsFromAuth, readAuthFile, shouldRefresh, writeAuthFile } from './authFile.js';
+import { applyRefreshResult, getCredentialsFromAuth, getRefreshReason, readAuthFile, writeAuthFile, type RefreshReason } from './authFile.js';
 
 export type AuthManager = {
   getCredentials: () => Promise<Credentials>;
@@ -31,13 +31,19 @@ export const getRefreshErrorCode = (body: unknown): string | undefined => {
   return typeof code === 'string' ? code : undefined;
 };
 
-export const isPermanentRefreshFailure = (status: number, code?: string): boolean =>
-  status === 401 ||
-  (code !== undefined && PERMANENT_REFRESH_CODES.includes(code)) ||
-  (status === 400 && code === 'invalid_grant');
+// Case-insensitive like references/codex @b4ad33d1 manager.rs classify_refresh_token_failure.
+export const isPermanentRefreshFailure = (status: number, code?: string): boolean => {
+  const normalized = code?.toLowerCase();
+  return (
+    status === 401 ||
+    (normalized !== undefined && PERMANENT_REFRESH_CODES.includes(normalized)) ||
+    (status === 400 && normalized === 'invalid_grant')
+  );
+};
 
 const requestTokenRefresh = async (
   refreshToken: string,
+  reason: RefreshReason,
   deps: { refreshUrl: string; fetchFn: typeof fetch; loginHint: string },
 ): Promise<RefreshResult> => {
   let response: Response;
@@ -45,7 +51,8 @@ const requestTokenRefresh = async (
     response = await deps.fetchFn(deps.refreshUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ client_id: OAUTH_CLIENT_ID, grant_type: 'refresh_token', refresh_token: refreshToken }),
+      // Mirrors references/codex @b4ad33d1 manager.rs request_chatgpt_token_refresh (JSON, reason always present).
+      body: JSON.stringify({ client_id: OAUTH_CLIENT_ID, grant_type: 'refresh_token', refresh_token: refreshToken, refresh_reason: reason }),
       signal: AbortSignal.timeout(60_000),
     });
   } catch (error) {
@@ -101,7 +108,7 @@ export const createAuthManager = ({ authPath, refreshUrl, fetchFn = fetch, now =
     return cachedAuth;
   };
 
-  const runRefresh = async (): Promise<AuthFile> => {
+  const runRefresh = async (reason: RefreshReason): Promise<AuthFile> => {
     const onDisk = await readAuth();
     // Tokens were rotated outside this process (e.g. `codex login`): adopt them.
     if (onDisk.tokens?.refresh_token !== cachedAuth?.tokens?.refresh_token) {
@@ -112,7 +119,7 @@ export const createAuthManager = ({ authPath, refreshUrl, fetchFn = fetch, now =
     if (!refreshToken) throw createProxyError({ status: 401, code: 'login_required', message: loginHint });
     if (permanentFailure?.refreshToken === refreshToken) throw permanentFailure.error;
     try {
-      const result = await requestTokenRefresh(refreshToken, { refreshUrl, fetchFn, loginHint });
+      const result = await requestTokenRefresh(refreshToken, reason, { refreshUrl, fetchFn, loginHint });
       const nextAuth = applyRefreshResult(onDisk, result, new Date(now()));
       await writeAuthFile(authPath, nextAuth);
       cachedAuth = nextAuth;
@@ -124,9 +131,10 @@ export const createAuthManager = ({ authPath, refreshUrl, fetchFn = fetch, now =
     }
   };
 
-  // Single-flight: concurrent callers share one refresh (refresh tokens are single-use).
-  const refreshOnce = (): Promise<AuthFile> => {
-    inflightRefresh ??= runRefresh().finally(() => {
+  // Single-flight: concurrent callers share one refresh (refresh tokens are single-use);
+  // the starter's refresh_reason goes on the wire, like @b4ad33d1 manager.rs recovery reuse.
+  const refreshOnce = (reason: RefreshReason): Promise<AuthFile> => {
+    inflightRefresh ??= runRefresh(reason).finally(() => {
       inflightRefresh = undefined;
     });
     return inflightRefresh;
@@ -134,9 +142,10 @@ export const createAuthManager = ({ authPath, refreshUrl, fetchFn = fetch, now =
 
   const getCredentials = async (): Promise<Credentials> => {
     const auth = await loadAuth();
-    if (!shouldRefresh(auth, now())) return toCredentials(auth);
+    const reason = getRefreshReason(auth, now());
+    if (!reason) return toCredentials(auth);
     try {
-      return toCredentials(await refreshOnce());
+      return toCredentials(await refreshOnce(reason));
     } catch (error) {
       if (isProxyError(error) && error.status === 401) throw error;
       // Transient failure: keep the current token, like Codex does.
@@ -154,7 +163,8 @@ export const createAuthManager = ({ authPath, refreshUrl, fetchFn = fetch, now =
       cachedAuth = onDisk;
       return toCredentials(onDisk);
     }
-    return toCredentials(await refreshOnce());
+    // 401 recovery: unauthorized_recovery, like manager.rs refresh_token_from_authority_with_reason.
+    return toCredentials(await refreshOnce('unauthorized_recovery'));
   };
 
   return { getCredentials, recoverUnauthorized };

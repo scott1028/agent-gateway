@@ -430,7 +430,11 @@ export async function* translateClaudeStream({
         if (!isDeltaSeen) throw badUpstream('Claude stream ended without message_delta');
         if (blocks.some((block) => block?.isOpen)) throw badUpstream('Claude stream sent message_stop with a content block still open');
         const incomplete = getIncompleteDetails(stopReason);
-        const status = incomplete?.status ?? 'completed';
+        // model_context_window_exceeded: the response filled the context window, so the turn
+        // failed (docs platform.claude.com/docs/en/build-with-claude/handling-stop-reasons;
+        // native 2.1.307 schema; references/CLIProxyAPI @0db19025 claudeResponsesTerminalState).
+        const isContextWindowFailure = stopReason === 'model_context_window_exceeded';
+        const status = isContextWindowFailure ? 'failed' : incomplete?.status ?? 'completed';
         const output = blocks
           .filter((block): block is BlockState => block !== undefined)
           .sort((left, right) => left.openaiIndex - right.openaiIndex)
@@ -442,6 +446,19 @@ export async function* translateClaudeStream({
           await saveState(nativeContent.map((block) => ({ ...block })), [...callIds]);
         }
         isStopped = true;
+        if (isContextWindowFailure) {
+          // No replay save and no deferred tool completions: only a completed turn is replayable.
+          // Output items flip to incomplete like references/CLIProxyAPI @0db19025
+          // claudeResponsesOutputStatus (status-less reasoning stays); fromFailedEvent gives 400.
+          const failedOutput = output.map((item) => (item.status === 'completed' ? { ...item, status: 'incomplete' } : item));
+          const failedShell = responseShell('failed', failedOutput);
+          failedShell.error = {
+            code: 'context_length_exceeded',
+            message: `Claude stopped because the response filled the model context window (stop_reason: ${String(stopReason)}).`,
+          };
+          yield emit('response.failed', { response: failedShell });
+          continue;
+        }
         yield* deferredToolEvents;
         const shell = responseShell(status, output);
         if (incomplete) shell.incomplete_details = incomplete.response;

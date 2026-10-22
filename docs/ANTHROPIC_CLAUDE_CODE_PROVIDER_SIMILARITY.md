@@ -1,5 +1,7 @@
 # Anthropic Provider 對官方 Claude Code 的行為相似度
 
+> 2026-10-22 注：本報告所有分數與 native/pin 基準為評估當下的歷史快照，references/claude-code 與 references/CLIProxyAPI 其後已更新且新增兩項支援路徑行為；分數未重評，見 [上游更新與對齊報告](UPSTREAM_UPDATE_2026-10-22.md)。
+
 評估日期：原評分 2026-10-17（首次評估 2026-10-15；本次依 pinned references 重評，分數不變），基準 native 2.1.299；2a 原樣轉送的另計分數 2026-10-18 新增，基準 native 2.1.302（§3）。
 
 **本報告以官方 Claude Code 為唯一基準，分別評估其他實作與官方的相似程度：agent-gateway 的自組路徑（含 2b）為 65／100，CLIProxyAPI 為 42.78／100。** 官方基準由 `references/claude-code` 的固定版本識別，未公開的 CLI transport 邏輯以固定官方 native release 補充；分數使用 30 項中的 25 項共同可確認證據。這兩個分數評的是 gateway 自己組請求的路徑（`/v1/responses`、`/v1/chat/completions`，以及共用組裝層的 2b 降轉）。
